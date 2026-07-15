@@ -10,7 +10,7 @@ const validTextItem = {
   updatedAt: "2026-07-15T00:00:00.000Z",
   contentFingerprint: "fingerprint-1",
   payload: {
-    revision: 1,
+    revision: "rev-1",
     text: "hello PasteboardPro",
   },
   pinned: false,
@@ -42,7 +42,7 @@ describe("PasteItemSchema", () => {
 });
 
 describe("PinboardSchema", () => {
-  it("accepts a stable ordering key", () => {
+  it("accepts a non-empty ordering key", () => {
     const parsed = PinboardSchema.parse(validPinboard);
 
     expect(parsed.orderKey).toBe("a0");

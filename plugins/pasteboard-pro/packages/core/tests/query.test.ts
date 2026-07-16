@@ -176,17 +176,29 @@ describe("searchPasteItems", () => {
         copiedAt: "2026-06-16T11:59:59.999Z",
       }),
       makeItem("exact-date", { copiedAt: "2026-07-01T23:59:59.999Z" }),
+      makeItem("future", { copiedAt: "2026-07-17T12:00:00.000Z" }),
     ];
+
+    const weekResults = searchPasteItems(items, "date:week", {
+      now: NOW,
+    }).map(({ id }) => id);
+    const monthResults = searchPasteItems(items, "date:month", {
+      now: NOW,
+    }).map(({ id }) => id);
 
     expect(
       searchPasteItems(items, "date:today", { now: NOW }).map(({ id }) => id),
     ).toEqual(["today"]);
-    expect(
-      searchPasteItems(items, "date:week", { now: NOW }).map(({ id }) => id),
-    ).toEqual(["today", "week"]);
-    expect(
-      searchPasteItems(items, "date:month", { now: NOW }).map(({ id }) => id),
-    ).toEqual(["today", "week", "too-old-for-week", "exact-date", "month"]);
+    expect(weekResults).not.toContain("future");
+    expect(weekResults).toEqual(["today", "week"]);
+    expect(monthResults).not.toContain("future");
+    expect(monthResults).toEqual([
+      "today",
+      "week",
+      "too-old-for-week",
+      "exact-date",
+      "month",
+    ]);
     expect(
       searchPasteItems(items, "date:2026-07-01", { now: NOW }).map(
         ({ id }) => id,

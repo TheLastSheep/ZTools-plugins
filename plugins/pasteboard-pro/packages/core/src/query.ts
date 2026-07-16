@@ -196,12 +196,20 @@ function matchesDate(
 
     if (normalized === "week") {
       const currentMs = resolveNowMs();
-      return Number.isFinite(currentMs) && copiedAtMs >= currentMs - 7 * DAY_MS;
+      return (
+        Number.isFinite(currentMs) &&
+        copiedAtMs >= currentMs - 7 * DAY_MS &&
+        copiedAtMs <= currentMs
+      );
     }
 
     if (normalized === "month") {
       const currentMs = resolveNowMs();
-      return Number.isFinite(currentMs) && copiedAtMs >= currentMs - 30 * DAY_MS;
+      return (
+        Number.isFinite(currentMs) &&
+        copiedAtMs >= currentMs - 30 * DAY_MS &&
+        copiedAtMs <= currentMs
+      );
     }
 
     return EXACT_DATE_PATTERN.test(filter) && toUtcDate(copiedAtMs) === filter;

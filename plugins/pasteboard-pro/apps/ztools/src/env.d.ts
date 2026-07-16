@@ -6,6 +6,8 @@ import type {
   DirectPasteResult,
   PrivacySettings,
 } from "../preload/privacy";
+import type { SaveSyncConfigurationInput } from "../preload/sync-config";
+import type { SyncSettings } from "../preload/sync-store";
 
 declare global {
   interface Window {
@@ -32,6 +34,8 @@ declare global {
         pinboardId: string | undefined,
       ): Promise<unknown[]>;
       recognizeItem(itemId: string): Promise<string>;
+      getSyncSettings(): Promise<SyncSettings>;
+      saveSyncSettings(input: SaveSyncConfigurationInput): Promise<SyncSettings>;
     }>;
   }
 }

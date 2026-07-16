@@ -7,6 +7,7 @@ import {
   type ZToolsDocumentDatabase,
 } from "./clipboard-store";
 import { createOcrClient } from "./ocr";
+import { createKeychainSecretStore } from "./keychain";
 import {
   isCapturePaused,
   performDirectPaste,
@@ -21,6 +22,11 @@ import {
 } from "./privacy";
 import { ZToolsPinboardStore } from "./pinboard-store";
 import { executeRetentionPrune } from "./retention";
+import {
+  saveSyncConfiguration,
+  type SaveSyncConfigurationInput,
+} from "./sync-config";
+import { ZToolsSyncStore, type SyncSettings } from "./sync-store";
 import { createSearchHistoryHandler } from "./tools";
 import {
   ShelfWindowManager,
@@ -81,6 +87,8 @@ type PasteboardProBridge = Readonly<{
     pinboardId: string | undefined,
   ): Promise<unknown[]>;
   recognizeItem(itemId: string): Promise<string>;
+  getSyncSettings(): Promise<SyncSettings>;
+  saveSyncSettings(input: SaveSyncConfigurationInput): Promise<SyncSettings>;
 }>;
 
 const host = (window as Window & { ztools?: ZToolsHost }).ztools;
@@ -99,6 +107,8 @@ const privacyStore = new ZToolsPrivacySettingsStore(ztools.db.promises);
 const pinboardStore = new ZToolsPinboardStore(ztools.db.promises, {
   deviceId: ztools.getNativeId(),
 });
+const syncStore = new ZToolsSyncStore(ztools.db.promises);
+const keychain = createKeychainSecretStore();
 const shelfWindows = new ShelfWindowManager(ztools);
 const ocrClient = createOcrClient({
   helperPath: path.join(__dirname, "pasteboard-vision"),
@@ -286,6 +296,9 @@ const bridge: PasteboardProBridge = {
     await store.updateOcrText(itemId, text);
     return text;
   },
+  getSyncSettings: () => syncStore.getSettings(),
+  saveSyncSettings: (input) =>
+    saveSyncConfiguration(syncStore, keychain, input),
 };
 
 (window as Window & { pasteboardPro?: PasteboardProBridge }).pasteboardPro = bridge;

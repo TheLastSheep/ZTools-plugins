@@ -4,8 +4,11 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { historyFixture, pinboardFixture } from "@pasteboard-pro/contract-fixtures";
 import { PinboardSchema, type Pinboard } from "@pasteboard-pro/core";
 import type { DockEdge } from "@pasteboard-pro/design-tokens";
+import type { SaveSyncConfigurationInput } from "../preload/sync-config";
+import { defaultSyncSettings, type SyncSettings } from "../preload/sync-store";
 
 import Shelf from "./components/Shelf.vue";
+import SyncSettingsPanel from "./components/SyncSettings.vue";
 import { createPasteboardState, type PasteboardKeyboardEffect } from "./state";
 
 const params = new URLSearchParams(window.location.search);
@@ -31,6 +34,9 @@ const paused = ref(false);
 const activePinboardId = ref<string>();
 const previewItemId = ref<string>();
 const status = ref("本地历史已就绪");
+const syncSettings = ref<SyncSettings>(structuredClone(defaultSyncSettings));
+const syncSettingsOpen = ref(false);
+const syncSettingsSaving = ref(false);
 
 const visibleItems = computed(() => {
   const items = state.visibleItems;
@@ -164,6 +170,26 @@ async function recognizeItem(itemId: string): Promise<void> {
   }
 }
 
+async function openSyncSettings(): Promise<void> {
+  syncSettings.value =
+    (await window.pasteboardPro?.getSyncSettings()) ?? structuredClone(defaultSyncSettings);
+  syncSettingsOpen.value = true;
+}
+
+async function saveSyncSettings(input: SaveSyncConfigurationInput): Promise<void> {
+  syncSettingsSaving.value = true;
+  try {
+    const saved = await window.pasteboardPro?.saveSyncSettings(input);
+    if (saved !== undefined) syncSettings.value = saved;
+    status.value = input.enabled ? "同步设置已保存" : "云同步已关闭";
+    syncSettingsOpen.value = false;
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : "同步设置保存失败";
+  } finally {
+    syncSettingsSaving.value = false;
+  }
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("pasteboard-pro:history-mirrored", onMirrored);
@@ -209,6 +235,15 @@ onBeforeUnmount(() => {
       @toggle-compact="state.setDensity(state.density === 'compact' ? 'expanded' : 'compact')"
       @toggle-stack-direction="state.dispatchPasteStack({ type: 'set-direction', direction: state.pasteStack.direction === 'forward' ? 'reverse' : 'forward' })"
       @clear-stack="state.dispatchPasteStack({ type: 'clear' })"
+      @open-sync-settings="openSyncSettings"
+    />
+    <SyncSettingsPanel
+      v-if="syncSettingsOpen"
+      :settings="syncSettings"
+      :saving="syncSettingsSaving"
+      @close="syncSettingsOpen = false"
+      @save="saveSyncSettings"
+      @retry="status = '同步重试将在运行时接入后执行'"
     />
     <p class="status" aria-live="polite">{{ status }}</p>
   </main>

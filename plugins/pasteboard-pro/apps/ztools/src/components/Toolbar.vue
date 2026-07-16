@@ -11,6 +11,7 @@ const emit = defineEmits<{
   "update:query": [value: string];
   togglePause: [];
   toggleCompact: [];
+  openSyncSettings: [];
 }>();
 </script>
 
@@ -22,6 +23,15 @@ const emit = defineEmits<{
     </div>
     <SearchBar :model-value="query" @update:model-value="emit('update:query', $event)" />
     <div class="toolbar__actions">
+      <button
+        type="button"
+        class="tool-button"
+        title="同步设置"
+        @click="emit('openSyncSettings')"
+      >
+        <span aria-hidden="true">↻</span>
+        同步
+      </button>
       <button
         type="button"
         class="tool-button"
@@ -112,7 +122,7 @@ const emit = defineEmits<{
   }
 
   .brand span:last-child,
-  .toolbar__actions .tool-button:first-child {
+  .toolbar__actions .tool-button:nth-child(-n + 2) {
     display: none;
   }
 }

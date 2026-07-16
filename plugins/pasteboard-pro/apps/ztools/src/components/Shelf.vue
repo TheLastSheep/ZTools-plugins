@@ -40,6 +40,7 @@ const emit = defineEmits<{
   toggleCompact: [];
   toggleStackDirection: [];
   clearStack: [];
+  openSyncSettings: [];
 }>();
 
 const style = computed(() => visualState(props.edge, props.density));
@@ -74,6 +75,7 @@ function forwardAssignPinboard(
       @update:query="emit('update:query', $event)"
       @toggle-pause="emit('togglePause')"
       @toggle-compact="emit('toggleCompact')"
+      @open-sync-settings="emit('openSyncSettings')"
     />
     <PinboardStrip
       :pinboards="pinboards"

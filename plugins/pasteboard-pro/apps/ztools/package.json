@@ -17,6 +17,7 @@
     "@pasteboard-pro/contract-fixtures": "workspace:*",
     "@pasteboard-pro/core": "workspace:*",
     "@pasteboard-pro/design-tokens": "workspace:*",
+    "@pasteboard-pro/sync-protocol": "workspace:*",
     "vue": "^3.5.22"
   },
   "devDependencies": {

@@ -9,6 +9,7 @@
     "build:renderer": "vite build",
     "build:preload": "vite build --config vite.preload.config.ts",
     "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.vue.json",
     "verify": "node scripts/verify-package.mjs"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
-    "vite": "^5.4.20"
+    "vite": "^5.4.20",
+    "vue-tsc": "^2.2.12"
   }
 }

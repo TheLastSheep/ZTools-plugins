@@ -1,8 +1,26 @@
 /// <reference types="vite/client" />
 
-declare module "*.vue" {
-  import type { DefineComponent } from "vue";
+import type {
+  CapturePauseState,
+  ClipboardWriteContent,
+  DirectPasteResult,
+  PrivacySettings,
+} from "../preload/privacy";
 
-  const component: DefineComponent<Record<string, never>, Record<string, never>, unknown>;
-  export default component;
+declare global {
+  interface Window {
+    pasteboardPro?: Readonly<{
+      searchHistory(
+        query?: string,
+        limit?: number,
+      ): Promise<Readonly<{ items: unknown[]; total: number }>>;
+      getPrivacySettings(): Promise<PrivacySettings>;
+      setCapturePause(pause: CapturePauseState): Promise<PrivacySettings>;
+      pasteHostItem(hostItemId: string): Promise<DirectPasteResult>;
+      pasteContent(content: ClipboardWriteContent): Promise<DirectPasteResult>;
+      pasteItem(itemId: string): Promise<DirectPasteResult>;
+    }>;
+  }
 }
+
+export {};

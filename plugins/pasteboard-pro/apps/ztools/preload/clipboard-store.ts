@@ -1,5 +1,6 @@
 import {
   PasteItemSchema,
+  searchPasteItems,
   type HybridClock,
   type PasteItem,
   type PastePayload,
@@ -32,6 +33,7 @@ export interface CanonicalClipboardStore {
 export interface ZToolsDocumentDatabase {
   get(id: string): Promise<unknown>;
   put(document: Record<string, unknown>): Promise<unknown>;
+  allDocs?(options: Readonly<Record<string, unknown>>): Promise<unknown>;
 }
 
 export interface HostClipboardApi {
@@ -46,6 +48,10 @@ export type MirrorHostHistoryOptions = Readonly<{
   deviceId: string;
   pageSize?: number;
   maxPages?: number;
+  shouldPersist?: (
+    rawItem: unknown,
+    record: CanonicalClipboardRecord,
+  ) => boolean | Promise<boolean>;
 }>;
 
 export type MirrorHostHistoryResult = Readonly<{
@@ -207,6 +213,55 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
         cursor: { ...cursor },
       } satisfies StoredCursorDocument),
     );
+  }
+
+  async listRecords(): Promise<CanonicalClipboardRecord[]> {
+    if (this.database.allDocs === undefined) {
+      throw new TypeError("ZTools database does not expose allDocs");
+    }
+    const result = await this.database.allDocs({
+      include_docs: true,
+      startkey: "pasteboard-pro:record:",
+      endkey: "pasteboard-pro:record:\uffff",
+    });
+    if (!isRecord(result) || !Array.isArray(result.rows)) {
+      throw new TypeError("ZTools database returned invalid record rows");
+    }
+
+    return result.rows
+      .flatMap((row) => {
+        if (!isRecord(row)) {
+          return [];
+        }
+        const record = storedRecord(row.doc);
+        return record === undefined ? [] : [record];
+      })
+      .sort(
+        (left, right) =>
+          Date.parse(right.item.copiedAt) - Date.parse(left.item.copiedAt) ||
+          left.item.id.localeCompare(right.item.id),
+      );
+  }
+
+  async search(
+    query: string,
+    limit: number,
+  ): Promise<Readonly<{ items: PasteItem[]; total: number }>> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
+      throw new RangeError("Search limit must be an integer between 1 and 10000");
+    }
+    const records = await this.listRecords();
+    const matched = searchPasteItems(
+      records.map((record) => record.item),
+      query,
+    );
+    return { items: matched.slice(0, limit), total: matched.length };
+  }
+
+  async findRecordByItemId(
+    itemId: string,
+  ): Promise<CanonicalClipboardRecord | undefined> {
+    return (await this.listRecords()).find((record) => record.item.id === itemId);
   }
 
   private recordDocumentId(fingerprint: string): string {
@@ -502,6 +557,14 @@ export async function mirrorHostHistory(
       newerItemsInPage += 1;
       const record = normalizeHostClipboardItem(rawItem, options.deviceId);
       if (record === null) {
+        skipped += 1;
+        continue;
+      }
+
+      if (
+        options.shouldPersist !== undefined &&
+        !(await options.shouldPersist(rawItem, record))
+      ) {
         skipped += 1;
         continue;
       }

@@ -1,66 +1,173 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
-const dock = computed(() => {
-  const value = new URLSearchParams(window.location.search).get("dock");
-  return value === "bottom" || value === "left" || value === "right"
-    ? value
+import { historyFixture, pinboardFixture } from "@pasteboard-pro/contract-fixtures";
+import type { Pinboard } from "@pasteboard-pro/core";
+import type { DockEdge } from "@pasteboard-pro/design-tokens";
+
+import Shelf from "./components/Shelf.vue";
+import { createPasteboardState, type PasteboardKeyboardEffect } from "./state";
+
+const params = new URLSearchParams(window.location.search);
+const dockValue = params.get("dock");
+const edge: DockEdge =
+  dockValue === "bottom" || dockValue === "left" || dockValue === "right"
+    ? dockValue
     : "floating";
+
+const developmentItems = import.meta.env.DEV ? historyFixture : [];
+const developmentPinboards = import.meta.env.DEV ? pinboardFixture : [];
+const state = reactive(
+  createPasteboardState({
+    items: developmentItems,
+    dockEdge: edge,
+  }),
+);
+const pinboards = ref<Pinboard[]>(
+  developmentPinboards.map((pinboard) => structuredClone(pinboard)),
+);
+const query = ref("");
+const paused = ref(false);
+const activePinboardId = ref<string>();
+const previewItemId = ref<string>();
+const status = ref("本地历史已就绪");
+
+const visibleItems = computed(() => {
+  const items = state.visibleItems;
+  return activePinboardId.value === undefined
+    ? items
+    : items.filter((item) => item.pinboardId === activePinboardId.value);
+});
+const previewItem = computed(() =>
+  visibleItems.value.find((item) => item.id === previewItemId.value),
+);
+
+function updateQuery(value: string): void {
+  query.value = value;
+  state.setQuery(value);
+}
+
+function selectItem(itemId: string, extend: boolean, toggle: boolean): void {
+  if (extend) {
+    state.extendSelectionTo(itemId);
+    return;
+  }
+  if (toggle) {
+    state.toggleSelection(itemId);
+    return;
+  }
+  state.replaceSelection(itemId);
+}
+
+async function pasteItem(itemId: string): Promise<void> {
+  const item = visibleItems.value.find((candidate) => candidate.id === itemId);
+  if (item === undefined) return;
+  try {
+    const result = await window.pasteboardPro?.pasteItem(itemId);
+    status.value =
+      result?.status === "accessibility_required"
+        ? "已复制；授权辅助功能后可直接粘贴"
+        : `已粘贴：${item.title ?? item.kind}`;
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : "粘贴失败";
+  }
+}
+
+function handleEffect(effect: PasteboardKeyboardEffect | null): void {
+  if (effect === null) return;
+  if (effect.type === "preview") {
+    previewItemId.value = effect.itemId;
+    return;
+  }
+  const itemId = effect.type === "quick-paste" ? effect.itemId : effect.itemIds[0];
+  if (itemId !== undefined) void pasteItem(itemId);
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+    return;
+  }
+  const effect = state.handleKeyboard({
+    key: event.key,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+  });
+  if (effect !== null || ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Escape"].includes(event.key)) {
+    event.preventDefault();
+  }
+  handleEffect(effect);
+}
+
+async function togglePause(): Promise<void> {
+  const next = !paused.value;
+  const settings = await window.pasteboardPro?.setCapturePause({ paused: next });
+  paused.value = settings?.pause.paused ?? next;
+  status.value = paused.value ? "剪贴板捕获已暂停" : "剪贴板捕获已继续";
+}
+
+function onMirrored(event: Event): void {
+  const detail = (event as CustomEvent<{ imported: number }>).detail;
+  status.value = detail.imported > 0 ? `已导入 ${detail.imported} 条记录` : "历史已同步";
+}
+
+async function loadHistory(): Promise<void> {
+  const history = await window.pasteboardPro?.searchHistory("", 10_000);
+  if (history !== undefined) {
+    state.replaceItems(history.items);
+    status.value = `已载入 ${history.total} 条记录`;
+  }
+}
+
+onMounted(async () => {
+  window.addEventListener("keydown", onKeydown);
+  window.addEventListener("pasteboard-pro:history-mirrored", onMirrored);
+  window.addEventListener("pasteboard-pro:history-changed", loadHistory);
+  const settings = await window.pasteboardPro?.getPrivacySettings();
+  paused.value = settings?.pause.paused ?? false;
+  await loadHistory();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("pasteboard-pro:history-mirrored", onMirrored);
+  window.removeEventListener("pasteboard-pro:history-changed", loadHistory);
 });
 </script>
 
 <template>
   <main class="stage">
-    <section class="shelf" :class="`shelf--${dock}`" aria-label="PasteboardPro">
-      <header class="toolbar">
-        <div class="brand-mark" aria-hidden="true"></div>
-        <label class="search">
-          <span class="search__label">搜索</span>
-          <input
-            type="search"
-            placeholder="内容、来源 App、日期或 Pinboard"
-            autocomplete="off"
-          />
-        </label>
-        <button type="button" class="control">暂停捕获</button>
-      </header>
-
-      <div class="timeline" aria-live="polite">
-        <div class="empty-state">
-          <span class="empty-state__eyebrow">本地剪贴板</span>
-          <strong>等待第一条剪贴板记录</strong>
-          <span>历史镜像接入后会在这里显示。</span>
-        </div>
-      </div>
-    </section>
+    <Shelf
+      :items="visibleItems"
+      :pinboards="pinboards"
+      :selected-ids="state.selection.selected"
+      :query="query"
+      :paused="paused"
+      :edge="state.dockEdge"
+      :density="state.density"
+      :active-pinboard-id="activePinboardId"
+      :preview-item="previewItem"
+      :paste-stack-count="state.pasteStack.itemIds.length"
+      :paste-stack-direction="state.pasteStack.direction"
+      @update:query="updateQuery"
+      @select="selectItem"
+      @paste="pasteItem"
+      @preview="previewItemId = $event"
+      @close-preview="previewItemId = undefined"
+      @select-pinboard="activePinboardId = $event"
+      @toggle-pause="togglePause"
+      @toggle-compact="state.setDensity(state.density === 'compact' ? 'expanded' : 'compact')"
+      @toggle-stack-direction="state.dispatchPasteStack({ type: 'set-direction', direction: state.pasteStack.direction === 'forward' ? 'reverse' : 'forward' })"
+      @clear-stack="state.dispatchPasteStack({ type: 'clear' })"
+    />
+    <p class="status" aria-live="polite">{{ status }}</p>
   </main>
 </template>
 
 <style>
-:root {
-  color: #17151f;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  font-synthesis: none;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#app {
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  margin: 0;
-  background: transparent;
-}
-
-button,
-input {
-  font: inherit;
-}
+@import "./styles/tokens.css";
+@import "./styles/glass.css";
+@import "./styles/layout.css";
 
 .stage {
   display: grid;
@@ -69,165 +176,27 @@ input {
   place-items: end center;
 }
 
-.shelf {
-  width: min(1120px, 100%);
-  min-height: 244px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  border-radius: 28px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(239, 236, 255, 0.56)),
-    rgba(246, 244, 255, 0.58);
-  box-shadow:
-    0 24px 80px rgba(31, 23, 68, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(26px) saturate(148%);
-  -webkit-backdrop-filter: blur(26px) saturate(148%);
+.status {
+  position: fixed;
+  left: 50%;
+  bottom: 2px;
+  margin: 0;
+  color: var(--pb-muted);
+  font-size: 9px;
+  transform: translateX(-50%);
 }
 
-.shelf--bottom {
-  border-bottom-right-radius: 0;
-  border-bottom-left-radius: 0;
+body:has(.shelf--bottom) .stage {
+  padding-bottom: 0;
 }
 
-.shelf--left {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+body:has(.shelf--left) .stage {
+  padding-left: 0;
+  place-items: center start;
 }
 
-.shelf--right {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-.toolbar {
-  display: grid;
-  grid-template-columns: auto minmax(220px, 520px) auto;
-  gap: 12px;
-  align-items: center;
-  min-height: 64px;
-  padding: 12px 16px;
-  border-bottom: 1px solid rgba(76, 65, 122, 0.12);
-}
-
-.brand-mark {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #7567ee;
-  box-shadow: 0 0 0 5px rgba(117, 103, 238, 0.13);
-}
-
-.search {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 9px;
-  align-items: center;
-  min-height: 38px;
-  padding: 0 13px;
-  border: 1px solid rgba(72, 62, 115, 0.14);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.54);
-}
-
-.search__label {
-  color: #716b82;
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-}
-
-.search input {
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.control {
-  min-height: 36px;
-  padding: 0 13px;
-  border: 1px solid rgba(72, 62, 115, 0.14);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.48);
-  color: #4f4960;
-  cursor: pointer;
-}
-
-.search:focus-within,
-.control:focus-visible {
-  outline: 2px solid rgba(100, 83, 232, 0.72);
-  outline-offset: 2px;
-}
-
-.timeline {
-  display: grid;
-  min-height: 178px;
-  padding: 24px;
-  place-items: center;
-}
-
-.empty-state {
-  display: grid;
-  gap: 6px;
-  justify-items: center;
-  color: #777083;
-  text-align: center;
-}
-
-.empty-state strong {
-  color: #25212e;
-  font-size: 17px;
-  font-weight: 650;
-}
-
-.empty-state__eyebrow {
-  color: #685bd5;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-@media (max-width: 680px) {
-  .toolbar {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .control {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .shelf {
-    transition: border-radius 160ms ease, transform 160ms ease;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f5f2ff;
-  }
-
-  .shelf {
-    border-color: rgba(255, 255, 255, 0.14);
-    background:
-      linear-gradient(135deg, rgba(58, 52, 75, 0.82), rgba(30, 27, 41, 0.72)),
-      rgba(26, 23, 35, 0.78);
-    box-shadow: 0 24px 90px rgba(0, 0, 0, 0.46);
-  }
-
-  .search,
-  .control {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.08);
-    color: #dcd7e8;
-  }
-
-  .empty-state strong {
-    color: #f7f3ff;
-  }
+body:has(.shelf--right) .stage {
+  padding-right: 0;
+  place-items: center end;
 }
 </style>

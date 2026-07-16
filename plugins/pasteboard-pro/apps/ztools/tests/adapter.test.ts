@@ -161,6 +161,24 @@ describe("ZTools clipboard adapter", () => {
     expect(await store.getCursor()).toEqual({ id: "text-2", timestamp: 400 });
   });
 
+  it("advances the cursor without persisting items rejected by capture policy", async () => {
+    const store = new MemoryStore();
+    const host: HostClipboardApi = {
+      async getHistory() {
+        return { items: [hostItems[0]], total: 1 };
+      },
+    };
+
+    await expect(
+      mirrorHostHistory(host, store, {
+        deviceId: "ztools-device",
+        shouldPersist: () => false,
+      }),
+    ).resolves.toEqual({ imported: 0, skipped: 1, pages: 1 });
+    expect(store.records.size).toBe(0);
+    expect(await store.getCursor()).toEqual({ id: "text-1", timestamp: 300 });
+  });
+
   it("skips unsupported or malformed host values without inventing records", () => {
     expect(normalizeHostClipboardItem(null, "device")).toBeNull();
     expect(
@@ -213,6 +231,16 @@ describe("ZTools clipboard adapter", () => {
         });
         return { ok: true };
       },
+      async allDocs(options) {
+        const start = String(options.startkey ?? "");
+        const end = String(options.endkey ?? "\uffff");
+        return {
+          rows: [...documents.entries()]
+            .filter(([id]) => id >= start && id <= end)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([id, document]) => ({ id, doc: structuredClone(document) })),
+        };
+      },
     };
     const store = new ZToolsCanonicalClipboardStore(database);
     const record = normalizeHostClipboardItem(hostItems[0], "ztools-device");
@@ -232,5 +260,12 @@ describe("ZTools clipboard adapter", () => {
       `pasteboard-pro:record:${record!.item.contentFingerprint}`,
       "pasteboard-pro:cursor:ztools-history",
     ]);
+    await expect(store.search("roadmap", 10)).resolves.toMatchObject({
+      total: 1,
+      items: [{ id: "ztools:text-1" }],
+    });
+    await expect(store.findRecordByItemId("ztools:text-1")).resolves.toEqual(
+      record,
+    );
   });
 });

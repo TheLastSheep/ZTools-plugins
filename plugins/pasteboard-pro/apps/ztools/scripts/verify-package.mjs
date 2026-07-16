@@ -18,6 +18,7 @@ assert.equal(
   "pnpm run build:renderer && pnpm run build:preload",
 );
 assert.equal(packageJson.scripts.verify, "node scripts/verify-package.mjs");
+assert.equal(packageJson.scripts.typecheck, "vue-tsc --noEmit -p tsconfig.vue.json");
 
 assert.equal(manifest.name, "pasteboard-pro");
 assert.equal(manifest.title, "PasteboardPro");
@@ -48,6 +49,18 @@ for (const path of [
   "preload/index.ts",
   "src/main.ts",
   "src/App.vue",
+  "src/state.ts",
+  "src/components/Shelf.vue",
+  "src/components/Toolbar.vue",
+  "src/components/Timeline.vue",
+  "src/components/PasteCard.vue",
+  "src/components/SearchBar.vue",
+  "src/components/PinboardStrip.vue",
+  "src/components/Preview.vue",
+  "src/components/PasteStack.vue",
+  "src/styles/tokens.css",
+  "src/styles/glass.css",
+  "src/styles/layout.css",
   "vite.config.ts",
   "vite.preload.config.ts",
 ]) {

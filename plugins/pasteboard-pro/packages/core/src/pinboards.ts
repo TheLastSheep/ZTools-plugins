@@ -35,6 +35,60 @@ function checkedGeneratedKey(key: string): string {
   return key;
 }
 
+function midpointBetweenValidated(before?: string, after?: string): string {
+  if (before === undefined && after === undefined) {
+    return SUFFIX_MIDPOINT;
+  }
+
+  let prefix = "";
+  let index = 0;
+
+  while (
+    before !== undefined &&
+    after !== undefined &&
+    index < before.length &&
+    index < after.length &&
+    before[index] === after[index]
+  ) {
+    prefix += before[index]!;
+    index += 1;
+  }
+
+  const lowerDigit =
+    before !== undefined && index < before.length
+      ? ORDER_ALPHABET.indexOf(before[index]!)
+      : -1;
+  const upperDigit =
+    after !== undefined && index < after.length
+      ? ORDER_ALPHABET.indexOf(after[index]!)
+      : OPEN_UPPER_DIGIT;
+
+  if (upperDigit - lowerDigit > 1) {
+    const midpoint = Math.floor((lowerDigit + upperDigit) / 2);
+    return prefix + ORDER_ALPHABET[midpoint]!;
+  }
+
+  if (lowerDigit >= 0 && before !== undefined) {
+    const lowerCharacter = ORDER_ALPHABET[lowerDigit]!;
+    const lowerSuffix =
+      index + 1 < before.length ? before.slice(index + 1) : undefined;
+
+    return (
+      prefix +
+      lowerCharacter +
+      midpointBetweenValidated(lowerSuffix, undefined)
+    );
+  }
+
+  if (after !== undefined && index + 1 < after.length) {
+    return after.slice(0, index + 1);
+  }
+
+  throw new RangeError(
+    "No base62 order key exists in this prefix gap; rebalance is required",
+  );
+}
+
 function compareLexical(left: string, right: string): number {
   if (left < right) {
     return -1;
@@ -87,43 +141,5 @@ export function orderKeyBetween(before?: string, after?: string): string {
     return checkedGeneratedKey("a0");
   }
 
-  let prefix = "";
-  let index = 0;
-
-  while (
-    before !== undefined &&
-    after !== undefined &&
-    index < before.length &&
-    index < after.length &&
-    before[index] === after[index]
-  ) {
-    prefix += before[index]!;
-    index += 1;
-  }
-
-  const lowerDigit =
-    before !== undefined && index < before.length
-      ? ORDER_ALPHABET.indexOf(before[index]!)
-      : -1;
-  const upperDigit =
-    after !== undefined && index < after.length
-      ? ORDER_ALPHABET.indexOf(after[index]!)
-      : OPEN_UPPER_DIGIT;
-
-  if (upperDigit - lowerDigit > 1) {
-    const midpoint = Math.floor((lowerDigit + upperDigit) / 2);
-    return checkedGeneratedKey(prefix + ORDER_ALPHABET[midpoint]!);
-  }
-
-  if (lowerDigit >= 0 && before !== undefined) {
-    return checkedGeneratedKey(before + SUFFIX_MIDPOINT);
-  }
-
-  if (after !== undefined && index + 1 < after.length) {
-    return checkedGeneratedKey(after.slice(0, index + 1));
-  }
-
-  throw new RangeError(
-    "No base62 order key exists in this prefix gap; rebalance is required",
-  );
+  return checkedGeneratedKey(midpointBetweenValidated(before, after));
 }

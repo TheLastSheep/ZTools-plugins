@@ -84,6 +84,14 @@ describe("orderKeyBetween", () => {
       RangeError,
     );
   });
+
+  it("finds a short midpoint for a maximal lower key below a higher digit", () => {
+    const before = "a".repeat(128);
+    const key = orderKeyBetween(before, "b");
+
+    expectBetween(key, before, "b");
+    expect(key.length).toBeLessThanOrEqual(128);
+  });
 });
 
 describe("stable pinboard ordering", () => {

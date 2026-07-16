@@ -92,6 +92,15 @@ describe("orderKeyBetween", () => {
     expectBetween(key, before, "b");
     expect(key.length).toBeLessThanOrEqual(128);
   });
+
+  it("falls back to a short upper prefix when the lower candidate is too long", () => {
+    const before = "a" + "z".repeat(127);
+    const key = orderKeyBetween(before, "b0");
+
+    expect(key).toBe("b");
+    expectBetween(key, before, "b0");
+    expect(key.length).toBeLessThanOrEqual(128);
+  });
 });
 
 describe("stable pinboard ordering", () => {

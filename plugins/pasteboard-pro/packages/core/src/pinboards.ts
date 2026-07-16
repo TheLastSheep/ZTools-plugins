@@ -72,12 +72,20 @@ function midpointBetweenValidated(before?: string, after?: string): string {
     const lowerCharacter = ORDER_ALPHABET[lowerDigit]!;
     const lowerSuffix =
       index + 1 < before.length ? before.slice(index + 1) : undefined;
-
-    return (
+    const lowerCandidate =
       prefix +
       lowerCharacter +
-      midpointBetweenValidated(lowerSuffix, undefined)
-    );
+      midpointBetweenValidated(lowerSuffix, undefined);
+
+    if (
+      lowerCandidate.length > MAX_ORDER_KEY_LENGTH &&
+      after !== undefined &&
+      index + 1 < after.length
+    ) {
+      return after.slice(0, index + 1);
+    }
+
+    return lowerCandidate;
   }
 
   if (after !== undefined && index + 1 < after.length) {

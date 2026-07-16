@@ -26,6 +26,12 @@ importers:
 
   packages/design-tokens: {}
 
+  packages/sync-protocol:
+    dependencies:
+      '@pasteboard-pro/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@esbuild/android-arm64@0.19.3':

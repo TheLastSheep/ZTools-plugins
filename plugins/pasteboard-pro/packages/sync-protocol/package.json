@@ -1,0 +1,11 @@
+{
+  "name": "@pasteboard-pro/sync-protocol",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pasteboard-pro/core": "workspace:*"
+  }
+}

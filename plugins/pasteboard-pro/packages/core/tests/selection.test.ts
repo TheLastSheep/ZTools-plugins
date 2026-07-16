@@ -87,6 +87,40 @@ describe("reduceSelection", () => {
     ).toEqual({ selected: [] });
   });
 
+  it("normalizes duplicate selected IDs when toggling a new item", () => {
+    const state: SelectionState = {
+      selected: ["a", "a"],
+      anchor: "a",
+      focus: "a",
+    };
+    const originalState = structuredClone(state);
+
+    expect(
+      reduceSelection(state, { type: "toggle", itemId: "b" }),
+    ).toEqual({
+      selected: ["a", "b"],
+      anchor: "b",
+      focus: "b",
+    });
+    expect(state).toEqual(originalState);
+  });
+
+  it("removes every target occurrence and normalizes remaining IDs", () => {
+    const state: SelectionState = {
+      selected: ["a", "b", "b", "a"],
+      anchor: "b",
+      focus: "b",
+    };
+
+    expect(
+      reduceSelection(state, { type: "toggle", itemId: "b" }),
+    ).toEqual({
+      selected: ["a"],
+      anchor: "a",
+      focus: "a",
+    });
+  });
+
   it("selects all unique ordered IDs and clears the selection", () => {
     const selected = reduceSelection(
       { selected: ["stale"], anchor: "stale", focus: "stale" },

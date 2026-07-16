@@ -43,13 +43,15 @@ export function reduceSelection(
     case "toggle": {
       if (!state.selected.includes(action.itemId)) {
         return selectedState(
-          [...state.selected, action.itemId],
+          uniqueIds([...state.selected, action.itemId]),
           action.itemId,
           action.itemId,
         );
       }
 
-      const remaining = state.selected.filter((id) => id !== action.itemId);
+      const remaining = uniqueIds(
+        state.selected.filter((id) => id !== action.itemId),
+      );
       if (remaining.length === 0) {
         return { selected: [] };
       }

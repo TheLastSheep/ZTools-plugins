@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { orderKeyBetween } from "../src/index";
+import {
+  compareStableOrder,
+  hasOrderKeyCollision,
+  orderKeyBetween,
+  type StableOrderEntry,
+} from "../src/index";
 
 const BASE62_PATTERN = /^[0-9A-Za-z]+$/;
 
@@ -22,6 +27,20 @@ describe("orderKeyBetween", () => {
   it("uses the deterministic initial key and the exact simple midpoint", () => {
     expect(orderKeyBetween()).toBe("a0");
     expect(orderKeyBetween("a0", "a2")).toBe("a1");
+  });
+
+  it("documents concurrent same-bound inserts as an order-key collision", () => {
+    const first = orderKeyBetween("a0", "a2");
+    const second = orderKeyBetween("a0", "a2");
+
+    expect(first).toBe("a1");
+    expect(second).toBe("a1");
+    expect(
+      hasOrderKeyCollision([
+        { orderKey: first, id: "client-a" },
+        { orderKey: second, id: "client-b" },
+      ]),
+    ).toBe(true);
   });
 
   it("creates a valid key between adjacent order keys", () => {
@@ -55,5 +74,49 @@ describe("orderKeyBetween", () => {
 
   it("requires rebalancing for an unrepresentable prefix gap", () => {
     expect(() => orderKeyBetween("a", "a0")).toThrow(RangeError);
+  });
+
+  it("rejects overlong inputs and generated keys that exceed the limit", () => {
+    expect(() => orderKeyBetween("a".repeat(129), undefined)).toThrow(
+      RangeError,
+    );
+    expect(() => orderKeyBetween("z".repeat(128), undefined)).toThrow(
+      RangeError,
+    );
+  });
+});
+
+describe("stable pinboard ordering", () => {
+  it("compares orderKey first and uses id as a deterministic tie-breaker", () => {
+    const left: StableOrderEntry = { orderKey: "a1", id: "client-a" };
+    const right: StableOrderEntry = { orderKey: "a1", id: "client-b" };
+
+    expect(compareStableOrder(left, right)).toBe(-1);
+    expect(compareStableOrder(right, left)).toBe(1);
+    expect(compareStableOrder(left, left)).toBe(0);
+    expect(
+      compareStableOrder(
+        { orderKey: "a0", id: "client-z" },
+        { orderKey: "a1", id: "client-a" },
+      ),
+    ).toBe(-1);
+  });
+
+  it("detects repeated order keys without mutating entries", () => {
+    const collisions: readonly StableOrderEntry[] = [
+      { orderKey: "a1", id: "same-id" },
+      { orderKey: "a1", id: "same-id" },
+    ];
+    const distinct: readonly StableOrderEntry[] = [
+      { orderKey: "a0", id: "client-a" },
+      { orderKey: "a1", id: "client-a" },
+    ];
+    const originalCollisions = structuredClone(collisions);
+    const originalDistinct = structuredClone(distinct);
+
+    expect(hasOrderKeyCollision(collisions)).toBe(true);
+    expect(hasOrderKeyCollision(distinct)).toBe(false);
+    expect(collisions).toEqual(originalCollisions);
+    expect(distinct).toEqual(originalDistinct);
   });
 });

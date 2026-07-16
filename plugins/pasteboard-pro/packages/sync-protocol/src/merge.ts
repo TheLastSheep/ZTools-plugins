@@ -5,7 +5,7 @@ import type {
   Pinboard,
 } from "@pasteboard-pro/core";
 
-import { compareClock, pickNewer } from "./clock";
+import { compareClock } from "./clock";
 
 export type SyncEntityType = "paste_item" | "pinboard";
 
@@ -33,7 +33,7 @@ function fieldClock(
   clocks: Readonly<Record<string, HybridClock>>,
   key: string,
 ): HybridClock {
-  return clocks[key] ?? MINIMUM_CLOCK;
+  return hasOwn(clocks, key) ? clocks[key]! : MINIMUM_CLOCK;
 }
 
 function mergeFieldClocks(
@@ -47,7 +47,12 @@ function mergeFieldClocks(
     const rightClock = fieldClock(right, key);
     const selected =
       compareClock(leftClock, rightClock) < 0 ? rightClock : leftClock;
-    merged[key] = cloneClock(selected);
+    Object.defineProperty(merged, key, {
+      value: cloneClock(selected),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
   }
 
   return merged;
@@ -59,10 +64,23 @@ function selectField<T>(
   leftClocks: Readonly<Record<string, HybridClock>>,
   rightValue: T,
   rightClocks: Readonly<Record<string, HybridClock>>,
+  equal: (left: T, right: T) => boolean = Object.is,
 ): T {
   const leftClock = fieldClock(leftClocks, key);
   const rightClock = fieldClock(rightClocks, key);
-  return pickNewer(leftValue, leftClock, rightValue, rightClock);
+  const clockOrder = compareClock(leftClock, rightClock);
+
+  if (clockOrder < 0) {
+    return rightValue;
+  }
+  if (clockOrder > 0) {
+    return leftValue;
+  }
+  if (!equal(leftValue, rightValue)) {
+    throw new RangeError(`Field ${key} has conflicting values at an equal clock`);
+  }
+
+  return leftValue;
 }
 
 function selectUpdatedAt(left: string, right: string): string {
@@ -94,10 +112,7 @@ function sourceAppsEqual(
   }
 
   return (
-    hasOwn(left, "bundleId") === hasOwn(right, "bundleId") &&
-    left.bundleId === right.bundleId &&
-    hasOwn(left, "name") === hasOwn(right, "name") &&
-    left.name === right.name
+    Object.is(left.bundleId, right.bundleId) && Object.is(left.name, right.name)
   );
 }
 
@@ -106,13 +121,10 @@ function optionalPayloadFieldEqual(
   right: PastePayload,
   key: "text" | "html" | "blobId" | "mediaType",
 ): boolean {
-  return hasOwn(left, key) === hasOwn(right, key) && left[key] === right[key];
+  return Object.is(left[key], right[key]);
 }
 
 function filePathsEqual(left: PastePayload, right: PastePayload): boolean {
-  if (hasOwn(left, "filePaths") !== hasOwn(right, "filePaths")) {
-    return false;
-  }
   if (left.filePaths === undefined || right.filePaths === undefined) {
     return left.filePaths === right.filePaths;
   }
@@ -143,6 +155,15 @@ function clonePayload(payload: PastePayload): PastePayload {
     ...(payload.filePaths === undefined
       ? {}
       : { filePaths: [...payload.filePaths] }),
+  };
+}
+
+function cloneSourceApp(
+  sourceApp: Exclude<PasteItem["sourceApp"], undefined>,
+): Exclude<PasteItem["sourceApp"], undefined> {
+  return {
+    ...(sourceApp.bundleId === undefined ? {} : { bundleId: sourceApp.bundleId }),
+    ...(sourceApp.name === undefined ? {} : { name: sourceApp.name }),
   };
 }
 
@@ -184,6 +205,7 @@ export function mergePasteItem(left: PasteItem, right: PasteItem): PasteItem {
     left.fieldClocks,
     right.payload,
     right.fieldClocks,
+    payloadsEqual,
   );
   const ocrText = selectField(
     "ocrText",
@@ -219,7 +241,7 @@ export function mergePasteItem(left: PasteItem, right: PasteItem): PasteItem {
     kind: left.kind,
     ...(left.sourceApp === undefined
       ? {}
-      : { sourceApp: { ...left.sourceApp } }),
+      : { sourceApp: cloneSourceApp(left.sourceApp) }),
     sourceDeviceId: left.sourceDeviceId,
     copiedAt: left.copiedAt,
     updatedAt: selectUpdatedAt(left.updatedAt, right.updatedAt),
@@ -293,6 +315,34 @@ function maximumLiveClock(entity: PasteItem | Pinboard): HybridClock {
   return maximum;
 }
 
+function cloneTombstone(tombstone: Tombstone): Tombstone {
+  return {
+    id: tombstone.id,
+    entityType: tombstone.entityType,
+    deleted: true,
+    deletedAt: tombstone.deletedAt,
+    sourceDeviceId: tombstone.sourceDeviceId,
+    clock: cloneClock(tombstone.clock),
+  };
+}
+
+function tombstonesEqual(left: Tombstone, right: Tombstone): boolean {
+  return (
+    left.id === right.id &&
+    left.entityType === right.entityType &&
+    left.deleted === right.deleted &&
+    left.deletedAt === right.deletedAt &&
+    left.sourceDeviceId === right.sourceDeviceId &&
+    compareClock(left.clock, right.clock) === 0
+  );
+}
+
+function cloneLiveEntity(entity: PasteItem | Pinboard): PasteItem | Pinboard {
+  return liveEntityType(entity) === "paste_item"
+    ? mergePasteItem(entity as PasteItem, entity as PasteItem)
+    : mergePinboard(entity as Pinboard, entity as Pinboard);
+}
+
 export function mergeEntity(
   left: PasteItem | Pinboard | Tombstone,
   right: PasteItem | Pinboard | Tombstone,
@@ -308,7 +358,11 @@ export function mergeEntity(
     if (left.entityType !== right.entityType) {
       throw new RangeError("Cannot merge tombstones for different entity types");
     }
-    return pickNewer(left, left.clock, right, right.clock);
+    const clockOrder = compareClock(left.clock, right.clock);
+    if (clockOrder === 0 && !tombstonesEqual(left, right)) {
+      throw new RangeError("Tombstones have conflicting metadata at an equal clock");
+    }
+    return cloneTombstone(clockOrder < 0 ? right : left);
   }
 
   if (!leftDeleted && !rightDeleted) {
@@ -332,6 +386,6 @@ export function mergeEntity(
   }
 
   return compareClock(deleted.clock, maximumLiveClock(live)) >= 0
-    ? deleted
-    : live;
+    ? cloneTombstone(deleted)
+    : cloneLiveEntity(live);
 }

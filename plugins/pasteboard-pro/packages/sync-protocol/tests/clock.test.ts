@@ -63,11 +63,25 @@ describe("pickNewer", () => {
     expect(pickNewer("left", clock(10, 0, "a"), "right", clock(11, 0, "a"))).toBe(
       "right",
     );
+    expect(
+      pickNewer("left", clock(11, 0, "a"), "right", clock(10, 0, "a")),
+    ).toBe("left");
   });
 
-  it("keeps the left value when clocks are equal", () => {
+  it("accepts the same primitive value when clocks are equal", () => {
     const equal = clock(10, 0, "a");
 
-    expect(pickNewer("left", equal, "right", { ...equal })).toBe("left");
+    expect(pickNewer("same", equal, "same", { ...equal })).toBe("same");
+  });
+
+  it("rejects different values when clocks are equal in both orders", () => {
+    const equal = clock(10, 0, "a");
+
+    expect(() => pickNewer("left", equal, "right", { ...equal })).toThrow(
+      RangeError,
+    );
+    expect(() => pickNewer("right", equal, "left", { ...equal })).toThrow(
+      RangeError,
+    );
   });
 });

@@ -31,5 +31,20 @@ export function pickNewer<T>(
   right: T,
   rightClock: HybridClock,
 ): T {
-  return compareClock(leftClock, rightClock) < 0 ? right : left;
+  const clockOrder = compareClock(leftClock, rightClock);
+
+  if (clockOrder > 0) {
+    return left;
+  }
+  if (clockOrder < 0) {
+    return right;
+  }
+
+  // Generic values only use primitive/referential equality;
+  // merge helpers own domain semantics.
+  if (Object.is(left, right)) {
+    return left;
+  }
+
+  throw new RangeError("Values conflict at an equal clock");
 }

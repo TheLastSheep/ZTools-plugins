@@ -8,6 +8,7 @@
     "test:contract": "node scripts/test-workspace-contract.mjs"
   },
   "devDependencies": {
+    "@pasteboard-pro/contract-fixtures": "workspace:*",
     "typescript": "^5.6.3",
     "vitest": "^2.1.9",
     "zod": "^3.24.2"

@@ -26,10 +26,10 @@ import {
   pinboardFixture,
   selectionKeyboardFixture,
   tombstoneFixture,
-} from "../src/index";
-import { historyFixture as historySubmoduleFixture } from "../src/history";
-import { selectionKeyboardFixture as keyboardSubmoduleFixture } from "../src/keyboard";
-import { aes256GcmZeroVector as syncSubmoduleFixture } from "../src/sync";
+} from "@pasteboard-pro/contract-fixtures";
+import { historyFixture as historySubmoduleFixture } from "@pasteboard-pro/contract-fixtures/history";
+import { selectionKeyboardFixture as keyboardSubmoduleFixture } from "@pasteboard-pro/contract-fixtures/keyboard";
+import { aes256GcmZeroVector as syncSubmoduleFixture } from "@pasteboard-pro/contract-fixtures/sync";
 
 const HISTORY_IDS = [
   "text-old",

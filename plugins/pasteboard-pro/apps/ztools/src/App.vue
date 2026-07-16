@@ -190,6 +190,13 @@ async function saveSyncSettings(input: SaveSyncConfigurationInput): Promise<void
   }
 }
 
+async function retrySync(): Promise<void> {
+  status.value = "正在重新同步…";
+  const settings = await window.pasteboardPro?.retrySync();
+  if (settings !== undefined) syncSettings.value = settings;
+  status.value = settings?.status.state === "success" ? "同步完成" : "同步仍需处理";
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("pasteboard-pro:history-mirrored", onMirrored);
@@ -243,7 +250,7 @@ onBeforeUnmount(() => {
       :saving="syncSettingsSaving"
       @close="syncSettingsOpen = false"
       @save="saveSyncSettings"
-      @retry="status = '同步重试将在运行时接入后执行'"
+      @retry="retrySync"
     />
     <p class="status" aria-live="polite">{{ status }}</p>
   </main>

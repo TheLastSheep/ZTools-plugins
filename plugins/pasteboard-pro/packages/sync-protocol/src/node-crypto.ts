@@ -1,6 +1,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHmac,
   randomBytes,
   scrypt as scryptCallback,
 } from "node:crypto";
@@ -134,4 +135,10 @@ export function hexToBytes(value: string): Uint8Array {
     throw new TypeError("Hex input must contain complete hexadecimal bytes");
   }
   return new Uint8Array(Buffer.from(value, "hex"));
+}
+
+export function vaultRevision(key: Uint8Array, value: unknown): string {
+  return `r-${createHmac("sha256", assertKey(key))
+    .update(canonicalJson(value), "utf8")
+    .digest("hex")}`;
 }

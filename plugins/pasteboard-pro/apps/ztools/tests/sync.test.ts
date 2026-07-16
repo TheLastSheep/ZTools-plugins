@@ -113,6 +113,43 @@ describe("PasteboardPro WebDAV sync", () => {
     expect(JSON.stringify(await queue.listObjects())).not.toContain("secret");
   });
 
+  it("reads public metadata and resolves create races inside the configured vault", async () => {
+    const requests: WebDavRequest[] = [];
+    let exists = false;
+    const client = createWebDavVaultClient({
+      baseUrl: "https://dav.example.com/root/PasteboardPro/v1/",
+      credentials: async () => ({ username: "alice", password: "secret" }),
+      queue: new MemorySyncQueue(),
+      transport: async (request) => {
+        requests.push(request);
+        if (request.method === "GET") {
+          return exists ? response(200, "metadata", '"vault"') : response(404);
+        }
+        exists = true;
+        return response(412);
+      },
+    });
+
+    await expect(client.readFile("vault.json")).resolves.toBeUndefined();
+    await expect(
+      client.putFileIfAbsent(
+        "vault.json",
+        new TextEncoder().encode("metadata"),
+        "application/json",
+      ),
+    ).resolves.toBe("exists");
+    await expect(client.readFile("vault.json")).resolves.toMatchObject({
+      etag: '"vault"',
+    });
+    expect(
+      requests.every((request) =>
+        request.url.startsWith(
+          "https://dav.example.com/root/PasteboardPro/v1/",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("persists only non-secret sync settings and encrypted queued bytes", async () => {
     let document: Record<string, unknown> | undefined;
     const database: ZToolsDocumentDatabase = {

@@ -22,11 +22,13 @@ import {
 } from "./privacy";
 import { ZToolsPinboardStore } from "./pinboard-store";
 import { executeRetentionPrune } from "./retention";
+import { runConfiguredVaultSync } from "./sync-controller";
 import {
   saveSyncConfiguration,
   type SaveSyncConfigurationInput,
 } from "./sync-config";
 import { ZToolsSyncStore, type SyncSettings } from "./sync-store";
+import { ZToolsSyncEntityRepository } from "./sync-repository";
 import { createSearchHistoryHandler } from "./tools";
 import {
   ShelfWindowManager,
@@ -89,6 +91,7 @@ type PasteboardProBridge = Readonly<{
   recognizeItem(itemId: string): Promise<string>;
   getSyncSettings(): Promise<SyncSettings>;
   saveSyncSettings(input: SaveSyncConfigurationInput): Promise<SyncSettings>;
+  retrySync(): Promise<SyncSettings>;
 }>;
 
 const host = (window as Window & { ztools?: ZToolsHost }).ztools;
@@ -109,11 +112,17 @@ const pinboardStore = new ZToolsPinboardStore(ztools.db.promises, {
 });
 const syncStore = new ZToolsSyncStore(ztools.db.promises);
 const keychain = createKeychainSecretStore();
+const syncRepository = new ZToolsSyncEntityRepository(
+  ztools.db.promises,
+  ztools.getNativeId(),
+);
 const shelfWindows = new ShelfWindowManager(ztools);
 const ocrClient = createOcrClient({
   helperPath: path.join(__dirname, "pasteboard-vision"),
 });
 let synchronization = Promise.resolve();
+let vaultSynchronization: Promise<SyncSettings> | undefined;
+let vaultSyncRequested = false;
 let shelfRefreshTimer: number | undefined;
 let lastRetentionRun = 0;
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -160,6 +169,30 @@ function reportSynchronizationError(error: unknown): void {
   );
 }
 
+function scheduleVaultSync(): Promise<SyncSettings> {
+  vaultSyncRequested = true;
+  if (vaultSynchronization !== undefined) return vaultSynchronization;
+  vaultSynchronization = (async () => {
+    let settings = await syncStore.getSettings();
+    do {
+      vaultSyncRequested = false;
+      settings = await runConfiguredVaultSync({
+        store: syncStore,
+        keychain,
+        repository: syncRepository,
+      });
+      window.dispatchEvent(
+        new CustomEvent("pasteboard-pro:vault-synced", { detail: settings }),
+      );
+      window.dispatchEvent(new CustomEvent("pasteboard-pro:history-changed"));
+    } while (vaultSyncRequested);
+    return settings;
+  })().finally(() => {
+    vaultSynchronization = undefined;
+  });
+  return vaultSynchronization;
+}
+
 async function runRetentionIfDue(): Promise<void> {
   const now = Date.now();
   if (now - lastRetentionRun < RETENTION_INTERVAL_MS) {
@@ -203,6 +236,7 @@ function scheduleHistoryMirror(): void {
         new CustomEvent("pasteboard-pro:history-mirrored", { detail: result }),
       );
       await runRetentionIfDue();
+      void scheduleVaultSync().catch(reportSynchronizationError);
     })
     .catch(reportSynchronizationError);
 }
@@ -264,16 +298,48 @@ const bridge: PasteboardProBridge = {
     if (record === undefined) {
       throw new RangeError("Clipboard item no longer exists");
     }
-    return performDirectPaste(
-      { type: "host", hostItemId: record.origin.hostItemId },
-      ztools.clipboard,
-    );
+    if (record.origin.host === "ztools") {
+      return performDirectPaste(
+        { type: "host", hostItemId: record.origin.hostItemId },
+        ztools.clipboard,
+      );
+    }
+    if (record.item.payload.html !== undefined) {
+      return performDirectPaste(
+        {
+          type: "content",
+          content: { type: "html", content: record.item.payload.html },
+        },
+        ztools.clipboard,
+      );
+    }
+    if (record.item.payload.text !== undefined) {
+      return performDirectPaste(
+        {
+          type: "content",
+          content: { type: "text", content: record.item.payload.text },
+        },
+        ztools.clipboard,
+      );
+    }
+    throw new RangeError("该同步记录只有远端附件，当前设备尚未下载内容");
   },
   listPinboards: () => pinboardStore.list(),
-  createPinboard: (name, color) => pinboardStore.create(name, color),
-  renamePinboard: (id, name) => pinboardStore.rename(id, name),
-  movePinboard: (id, beforeId, afterId) =>
-    pinboardStore.moveBetween(id, beforeId, afterId),
+  async createPinboard(name, color) {
+    const result = await pinboardStore.create(name, color);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    return result;
+  },
+  async renamePinboard(id, name) {
+    const result = await pinboardStore.rename(id, name);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    return result;
+  },
+  async movePinboard(id, beforeId, afterId) {
+    const result = await pinboardStore.moveBetween(id, beforeId, afterId);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    return result;
+  },
   async assignItemsToPinboard(itemIds, pinboardId) {
     if (
       pinboardId !== undefined &&
@@ -281,24 +347,31 @@ const bridge: PasteboardProBridge = {
     ) {
       throw new RangeError("Pinboard does not exist");
     }
-    return store.assignToPinboard(itemIds, pinboardId);
+    const result = await store.assignToPinboard(itemIds, pinboardId);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    return result;
   },
   async recognizeItem(itemId) {
     if (process.platform !== "darwin") {
       throw new Error("本地 Vision OCR 仅支持 macOS");
     }
     const record = await store.findRecordByItemId(itemId);
-    const imagePath = record?.origin.imagePath;
+    const imagePath =
+      record?.origin.host === "ztools" ? record.origin.imagePath : undefined;
     if (record === undefined || imagePath === undefined) {
       throw new RangeError("该记录没有可识别的本地图片");
     }
     const text = await ocrClient.recognize(imagePath);
     await store.updateOcrText(itemId, text);
+    void scheduleVaultSync().catch(reportSynchronizationError);
     return text;
   },
   getSyncSettings: () => syncStore.getSettings(),
-  saveSyncSettings: (input) =>
-    saveSyncConfiguration(syncStore, keychain, input),
+  async saveSyncSettings(input) {
+    const settings = await saveSyncConfiguration(syncStore, keychain, input);
+    return settings.enabled ? await scheduleVaultSync() : settings;
+  },
+  retrySync: () => scheduleVaultSync(),
 };
 
 (window as Window & { pasteboardPro?: PasteboardProBridge }).pasteboardPro = bridge;

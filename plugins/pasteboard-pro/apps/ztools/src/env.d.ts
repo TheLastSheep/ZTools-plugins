@@ -36,6 +36,7 @@ declare global {
       recognizeItem(itemId: string): Promise<string>;
       getSyncSettings(): Promise<SyncSettings>;
       saveSyncSettings(input: SaveSyncConfigurationInput): Promise<SyncSettings>;
+      retrySync(): Promise<SyncSettings>;
     }>;
   }
 }

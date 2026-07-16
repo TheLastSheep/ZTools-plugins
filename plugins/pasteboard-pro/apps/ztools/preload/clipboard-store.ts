@@ -13,14 +13,21 @@ export type HostCursor = Readonly<{
   timestamp: number;
 }>;
 
-export type CanonicalClipboardOrigin = Readonly<{
-  host: "ztools";
-  hostItemId: string;
-  hostType: "text" | "image" | "file";
-  imagePath?: string;
-  blobBytes?: number;
-  pluginBlobId?: string;
-}>;
+export type CanonicalClipboardOrigin =
+  | Readonly<{
+      host: "ztools";
+      hostItemId: string;
+      hostType: "text" | "image" | "file";
+      imagePath?: string;
+      blobBytes?: number;
+      pluginBlobId?: string;
+    }>
+  | Readonly<{
+      host: "sync";
+      remoteAvailable: boolean;
+      blobBytes?: number;
+      pluginBlobId?: string;
+    }>;
 
 export type CanonicalClipboardRecord = Readonly<{
   item: PasteItem;
@@ -142,8 +149,24 @@ function storedRecord(value: unknown): CanonicalClipboardRecord | undefined {
 
   const item = PasteItemSchema.safeParse(value.record.item);
   const origin = value.record.origin;
+  if (!item.success) return undefined;
+  if (origin.host === "sync") {
+    if (typeof origin.remoteAvailable !== "boolean") return undefined;
+    return {
+      item: item.data,
+      origin: {
+        host: "sync",
+        remoteAvailable: origin.remoteAvailable,
+        ...(Number.isSafeInteger(origin.blobBytes) && Number(origin.blobBytes) >= 0
+          ? { blobBytes: Number(origin.blobBytes) }
+          : {}),
+        ...(typeof origin.pluginBlobId === "string"
+          ? { pluginBlobId: origin.pluginBlobId }
+          : {}),
+      },
+    };
+  }
   if (
-    !item.success ||
     origin.host !== "ztools" ||
     typeof origin.hostItemId !== "string" ||
     (origin.hostType !== "text" &&
@@ -224,6 +247,39 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
       type: "pasteboard-pro-record",
       record: structuredClone(record),
     } satisfies StoredRecordDocument));
+  }
+
+  async putSyncedItem(item: PasteItem): Promise<void> {
+    const current = await this.findRecordByItemId(item.id);
+    await this.put({
+      item: PasteItemSchema.parse(item),
+      origin:
+        current !== undefined &&
+        current.item.payload.revision === item.payload.revision
+          ? current.origin
+          : ({
+              host: "sync",
+              remoteAvailable:
+                item.kind !== "image" &&
+                item.kind !== "pdf" &&
+                item.kind !== "files",
+            } as const),
+    });
+  }
+
+  async removeSyncedItem(itemId: string): Promise<void> {
+    if (this.database.remove === undefined) {
+      throw new TypeError("ZTools database does not expose remove");
+    }
+    const current = await this.findRecordByItemId(itemId);
+    if (current === undefined) return;
+    try {
+      await this.database.remove(
+        await this.database.get(this.recordDocumentId(current.item.contentFingerprint)),
+      );
+    } catch (error) {
+      if (!isDatabaseStatus(error, 404)) throw error;
+    }
   }
 
   async getCursor(): Promise<HostCursor | undefined> {
@@ -308,6 +364,25 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     for (const record of records) {
       const documentId = this.recordDocumentId(record.item.contentFingerprint);
       try {
+        const maximumClock = Math.max(
+          ...Object.values(record.item.fieldClocks).map((clock) => clock.wallMs),
+          0,
+        );
+        const deletedAt = Math.max(this.validTimestamp(), maximumClock + 1);
+        const tombstoneId = `pasteboard-pro:tombstone:paste_item:${record.item.id}`;
+        await putWithConflictRetry(this.database, tombstoneId, (revision) => ({
+          _id: tombstoneId,
+          ...(revision === undefined ? {} : { _rev: revision }),
+          type: "pasteboard-pro-tombstone",
+          tombstone: {
+            id: record.item.id,
+            entityType: "paste_item",
+            deleted: true,
+            deletedAt: new Date(deletedAt).toISOString(),
+            sourceDeviceId: this.deviceId,
+            clock: { wallMs: deletedAt, counter: 0, deviceId: this.deviceId },
+          },
+        }));
         const document = await this.database.get(documentId);
         await this.database.remove(document);
         deletedIds.push(record.item.id);

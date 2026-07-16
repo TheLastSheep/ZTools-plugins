@@ -182,6 +182,21 @@ export class ZToolsPinboardStore {
     return updated;
   }
 
+  async putSynced(pinboard: Pinboard): Promise<void> {
+    await this.put(PinboardSchema.parse(pinboard));
+  }
+
+  async removeSynced(id: string): Promise<void> {
+    if (this.database.remove === undefined) {
+      throw new TypeError("ZTools database does not expose remove");
+    }
+    try {
+      await this.database.remove(await this.database.get(this.documentId(id)));
+    } catch (error) {
+      if (!databaseStatus(error, 404)) throw error;
+    }
+  }
+
   private timestamp(): number {
     const value = this.now();
     if (!Number.isSafeInteger(value) || !Number.isFinite(new Date(value).getTime())) {

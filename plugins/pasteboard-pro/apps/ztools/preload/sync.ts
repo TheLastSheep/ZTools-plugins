@@ -74,7 +74,15 @@ export class MemorySyncQueue implements SyncQueue {
 }
 
 export type WebDavSyncResult = Readonly<{
-  state: "success" | "offline" | "auth_required" | "partial" | "conflict";
+  state:
+    | "success"
+    | "offline"
+    | "auth_required"
+    | "partial"
+    | "conflict"
+    | "wrong_password"
+    | "corrupted"
+    | "schema_too_new";
   uploadedObjects: number;
   pendingObjects: number;
   retries: number;
@@ -87,6 +95,12 @@ export type SyncEncryptedVaultInput = Readonly<{
 }>;
 
 export interface WebDavVaultClient {
+  readFile(path: string): Promise<Readonly<{ body: Uint8Array; etag?: string }> | undefined>;
+  putFileIfAbsent(
+    path: string,
+    body: Uint8Array,
+    contentType?: string,
+  ): Promise<"created" | "exists">;
   syncEncryptedVault(input: SyncEncryptedVaultInput): Promise<WebDavSyncResult>;
 }
 
@@ -97,23 +111,47 @@ export type WebDavVaultClientOptions = Readonly<{
   queue: SyncQueue;
 }>;
 
-class WebDavStatusError extends Error {
+export class WebDavStatusError extends Error {
   constructor(readonly status: number, operation: string) {
     super(`WebDAV ${operation} failed with status ${status}`);
   }
 }
 
-function defaultTransport(request: WebDavRequest): Promise<WebDavResponse> {
-  return fetch(request.url, {
+export class VaultSyncError extends Error {
+  constructor(
+    readonly state: "wrong_password" | "corrupted" | "schema_too_new",
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
+
+const MAX_HTTP_RESPONSE_BYTES = 101 * 1_024 * 1_024;
+const HTTP_TIMEOUT_MS = 30_000;
+
+async function defaultTransport(request: WebDavRequest): Promise<WebDavResponse> {
+  const response = await fetch(request.url, {
     method: request.method,
     headers: request.headers,
     ...(request.body === undefined ? {} : { body: Buffer.from(request.body) }),
     redirect: "manual",
-  }).then(async (response) => ({
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+  });
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_HTTP_RESPONSE_BYTES) {
+    await response.body?.cancel();
+    throw new RangeError("WebDAV response exceeds the 101 MiB safety limit");
+  }
+  const body = new Uint8Array(await response.arrayBuffer());
+  if (body.byteLength > MAX_HTTP_RESPONSE_BYTES) {
+    throw new RangeError("WebDAV response exceeds the 101 MiB safety limit");
+  }
+  return {
     status: response.status,
     headers: response.headers,
-    body: new Uint8Array(await response.arrayBuffer()),
-  }));
+    body,
+  };
 }
 
 function parseBaseUrl(value: string): URL {
@@ -163,6 +201,7 @@ function uniqueObjects(
 }
 
 function stateForError(error: unknown): WebDavSyncResult["state"] {
+  if (error instanceof VaultSyncError) return error.state;
   if (error instanceof WebDavStatusError) {
     if (error.status === 401 || error.status === 403) return "auth_required";
     return "partial";
@@ -175,6 +214,18 @@ export function createWebDavVaultClient(
 ): WebDavVaultClient {
   const baseUrl = parseBaseUrl(options.baseUrl);
   const transport = options.transport ?? defaultTransport;
+
+  const requiredCredentials = async (): Promise<WebDavCredentials> => {
+    const credentials = await options.credentials();
+    if (
+      credentials === undefined ||
+      credentials.username.length === 0 ||
+      credentials.password.length === 0
+    ) {
+      throw new WebDavStatusError(401, "credential lookup");
+    }
+    return credentials;
+  };
 
   const request = async (
     method: WebDavRequest["method"],
@@ -192,8 +243,8 @@ export function createWebDavVaultClient(
       method,
       url: url.toString(),
       headers: {
-        authorization: `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`, "utf8").toString("base64")}`,
         ...extraHeaders,
+        authorization: `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`, "utf8").toString("base64")}`,
       },
       ...(body === undefined ? {} : { body }),
     });
@@ -222,6 +273,30 @@ export function createWebDavVaultClient(
   };
 
   return {
+    async readFile(path) {
+      const response = await request("GET", path, await requiredCredentials());
+      if (response.status === 404) return undefined;
+      if (response.status !== 200) {
+        throw new WebDavStatusError(response.status, `read ${path}`);
+      }
+      const etag = response.headers.get("etag") ?? undefined;
+      return {
+        body: response.body,
+        ...(etag === undefined ? {} : { etag }),
+      };
+    },
+    async putFileIfAbsent(path, body, contentType = "application/octet-stream") {
+      const response = await request(
+        "PUT",
+        path,
+        await requiredCredentials(),
+        { "content-type": contentType, "if-none-match": "*" },
+        body,
+      );
+      if ([200, 201, 204].includes(response.status)) return "created";
+      if (response.status === 412) return "exists";
+      throw new WebDavStatusError(response.status, `create ${path}`);
+    },
     async syncEncryptedVault(input) {
       const credentials = await options.credentials();
       if (
@@ -240,25 +315,7 @@ export function createWebDavVaultClient(
 
       const objects = uniqueObjects(await options.queue.listObjects(), input.objects);
       let uploadedObjects = 0;
-      for (let index = 0; index < objects.length; index += 1) {
-        const object = objects[index]!;
-        try {
-          await uploadImmutable(object, credentials);
-          uploadedObjects += 1;
-          await options.queue.removeObjects([object.path]);
-        } catch (error) {
-          const remaining = objects.slice(index);
-          await options.queue.enqueueObjects(remaining);
-          await options.queue.setRetryRequired(true);
-          return {
-            state: stateForError(error),
-            uploadedObjects,
-            pendingObjects: (await options.queue.listObjects()).length,
-            retries: 0,
-            failedObjectIds: remaining.map((value) => value.id),
-          };
-        }
-      }
+      const uploadedPaths = new Set<string>();
 
       let retries = 0;
       for (let attempt = 0; attempt <= 3; attempt += 1) {
@@ -277,6 +334,27 @@ export function createWebDavVaultClient(
           }
 
           const index = await input.buildIndex(remoteBody);
+          for (let objectIndex = 0; objectIndex < objects.length; objectIndex += 1) {
+            const object = objects[objectIndex]!;
+            if (uploadedPaths.has(object.path)) continue;
+            try {
+              await uploadImmutable(object, credentials);
+              uploadedPaths.add(object.path);
+              uploadedObjects += 1;
+              await options.queue.removeObjects([object.path]);
+            } catch (error) {
+              const remaining = objects.slice(objectIndex);
+              await options.queue.enqueueObjects(remaining);
+              await options.queue.setRetryRequired(true);
+              return {
+                state: stateForError(error),
+                uploadedObjects,
+                pendingObjects: (await options.queue.listObjects()).length,
+                retries,
+                failedObjectIds: remaining.map((value) => value.id),
+              };
+            }
+          }
           const updated = await request(
             "PUT",
             "index.enc",
@@ -315,13 +393,19 @@ export function createWebDavVaultClient(
           }
           throw new WebDavStatusError(updated.status, "conditional index update");
         } catch (error) {
+          const remaining = objects.filter(
+            (object) => !uploadedPaths.has(object.path),
+          );
+          if (remaining.length > 0) {
+            await options.queue.enqueueObjects(remaining);
+          }
           await options.queue.setRetryRequired(true);
           return {
             state: stateForError(error),
             uploadedObjects,
             pendingObjects: (await options.queue.listObjects()).length,
             retries,
-            failedObjectIds: [],
+            failedObjectIds: remaining.map((object) => object.id),
           };
         }
       }

@@ -5,6 +5,7 @@ import type {
   SelectionAction,
   SelectionState,
 } from "@pasteboard-pro/core";
+import { deepFreeze } from "#freeze";
 
 export type HostAgnosticKeyboardEvent = Readonly<{
   key: string;
@@ -21,7 +22,7 @@ export type SelectionKeyboardStep = Readonly<{
   expectedFocus?: string;
 }>;
 
-export const selectionKeyboardFixture = {
+export const selectionKeyboardFixture = deepFreeze({
   orderedIds: ["text-old", "image-new", "url-middle"],
   initial: {
     selected: ["text-old"],
@@ -82,7 +83,7 @@ export const selectionKeyboardFixture = {
   orderedIds: readonly string[];
   initial: SelectionState;
   steps: readonly SelectionKeyboardStep[];
-};
+});
 
 export type PasteStackKeyboardStep = Readonly<{
   action: PasteStackAction;
@@ -90,7 +91,7 @@ export type PasteStackKeyboardStep = Readonly<{
   expectedDirection: PasteStackDirection;
 }>;
 
-export const pasteStackKeyboardFixture = {
+export const pasteStackKeyboardFixture = deepFreeze({
   initial: {
     direction: "forward",
     itemIds: ["text-old", "image-new", "url-middle"],
@@ -125,4 +126,4 @@ export const pasteStackKeyboardFixture = {
 } satisfies {
   initial: PasteStackState;
   steps: readonly PasteStackKeyboardStep[];
-};
+});

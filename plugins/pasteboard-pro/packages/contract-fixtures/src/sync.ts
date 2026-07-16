@@ -1,7 +1,8 @@
 import type { PasteItem, Pinboard } from "@pasteboard-pro/core";
 import type { Tombstone } from "@pasteboard-pro/sync-protocol";
+import { deepFreeze } from "#freeze";
 
-export const concurrentPasteItemEdits = {
+export const concurrentPasteItemEdits = deepFreeze({
   left: {
     id: "concurrent-paste-item",
     kind: "text",
@@ -19,8 +20,8 @@ export const concurrentPasteItemEdits = {
     pinboardOrderKey: "a0",
     pinned: true,
     fieldClocks: {
-      title: { wallMs: 2_000, counter: 0, deviceId: "local-device" },
-      pinboardId: { wallMs: 1_000, counter: 0, deviceId: "local-device" },
+      title: { wallMs: 1784196100000, counter: 0, deviceId: "local-device" },
+      pinboardId: { wallMs: 1784196000000, counter: 0, deviceId: "local-device" },
     },
   },
   right: {
@@ -40,8 +41,8 @@ export const concurrentPasteItemEdits = {
     pinboardOrderKey: "a0",
     pinned: true,
     fieldClocks: {
-      title: { wallMs: 1_500, counter: 0, deviceId: "remote-device" },
-      pinboardId: { wallMs: 2_500, counter: 0, deviceId: "remote-device" },
+      title: { wallMs: 1784196050000, counter: 0, deviceId: "remote-device" },
+      pinboardId: { wallMs: 1784196170000, counter: 0, deviceId: "remote-device" },
     },
   },
   expected: {
@@ -52,9 +53,9 @@ export const concurrentPasteItemEdits = {
   left: PasteItem;
   right: PasteItem;
   expected: { title: string; pinboardId: string };
-};
+});
 
-export const concurrentPinboardEdits = {
+export const concurrentPinboardEdits = deepFreeze({
   left: {
     id: "concurrent-pinboard",
     name: "Project Work",
@@ -63,8 +64,8 @@ export const concurrentPinboardEdits = {
     createdAt: "2026-07-01T08:00:00.000Z",
     updatedAt: "2026-07-16T11:00:00.000Z",
     fieldClocks: {
-      name: { wallMs: 3_000, counter: 0, deviceId: "local-device" },
-      color: { wallMs: 1_000, counter: 0, deviceId: "local-device" },
+      name: { wallMs: 1784199500000, counter: 0, deviceId: "local-device" },
+      color: { wallMs: 1784199000000, counter: 0, deviceId: "local-device" },
     },
   },
   right: {
@@ -75,8 +76,8 @@ export const concurrentPinboardEdits = {
     createdAt: "2026-07-01T08:00:00.000Z",
     updatedAt: "2026-07-16T11:05:00.000Z",
     fieldClocks: {
-      name: { wallMs: 2_000, counter: 0, deviceId: "remote-device" },
-      color: { wallMs: 4_000, counter: 0, deviceId: "remote-device" },
+      name: { wallMs: 1784199400000, counter: 0, deviceId: "remote-device" },
+      color: { wallMs: 1784199800000, counter: 0, deviceId: "remote-device" },
     },
   },
   expected: {
@@ -87,9 +88,9 @@ export const concurrentPinboardEdits = {
   left: Pinboard;
   right: Pinboard;
   expected: { name: string; color: string };
-};
+});
 
-export const tombstoneFixture = {
+export const tombstoneFixture = deepFreeze({
   live: {
     id: "text-old",
     kind: "text",
@@ -107,11 +108,11 @@ export const tombstoneFixture = {
     pinboardOrderKey: "a0",
     pinned: true,
     fieldClocks: {
-      title: { wallMs: 1_000, counter: 0, deviceId: "device-mac-studio" },
-      payload: { wallMs: 1_100, counter: 0, deviceId: "device-mac-studio" },
-      pinboardId: { wallMs: 1_200, counter: 0, deviceId: "device-mac-studio" },
-      pinboardOrderKey: { wallMs: 1_300, counter: 0, deviceId: "device-mac-studio" },
-      pinned: { wallMs: 1_400, counter: 0, deviceId: "device-mac-studio" },
+      title: { wallMs: 1783671300000, counter: 0, deviceId: "device-mac-studio" },
+      payload: { wallMs: 1783671300000, counter: 1, deviceId: "device-mac-studio" },
+      pinboardId: { wallMs: 1783671600000, counter: 0, deviceId: "device-mac-studio" },
+      pinboardOrderKey: { wallMs: 1783671600000, counter: 1, deviceId: "device-mac-studio" },
+      pinned: { wallMs: 1783671600000, counter: 2, deviceId: "device-mac-studio" },
     },
   },
   tombstone: {
@@ -120,11 +121,11 @@ export const tombstoneFixture = {
     deleted: true,
     deletedAt: "2026-07-16T12:00:00.000Z",
     sourceDeviceId: "device-macbook-air",
-    clock: { wallMs: 2_000, counter: 0, deviceId: "device-macbook-air" },
+    clock: { wallMs: 1784203200000, counter: 0, deviceId: "device-macbook-air" },
   },
-} satisfies { live: PasteItem; tombstone: Tombstone };
+} satisfies { live: PasteItem; tombstone: Tombstone });
 
-export const aes256GcmZeroVector = Object.freeze({
+export const aes256GcmZeroVector = deepFreeze({
   algorithm: "AES-256-GCM",
   keyHex: "0000000000000000000000000000000000000000000000000000000000000000",
   nonceHex: "000000000000000000000000",

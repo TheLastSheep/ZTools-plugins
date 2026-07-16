@@ -1,7 +1,11 @@
 {
   "name": "@pasteboard-pro/contract-fixtures",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
+  "imports": {
+    "#freeze": "./src/freeze.ts"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./history": "./src/history.ts",

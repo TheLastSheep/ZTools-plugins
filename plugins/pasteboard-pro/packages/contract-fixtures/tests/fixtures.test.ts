@@ -1,5 +1,7 @@
-// @ts-expect-error -- The runtime is Node, while this workspace intentionally omits @types/node.
+import { spawnSync } from "node:child_process";
+import { createCipheriv } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import {
   PasteItemSchema,
@@ -7,13 +9,18 @@ import {
   reducePasteStack,
   reduceSelection,
   searchPasteItems,
+  type PasteItem,
+  type PasteStackAction,
   type PasteStackState,
+  type Pinboard,
+  type SelectionAction,
   type SelectionState,
 } from "../../core/src/index";
 import {
   mergeEntity,
   mergePasteItem,
   mergePinboard,
+  type Tombstone,
 } from "../../sync-protocol/src/index";
 import { describe, expect, it } from "vitest";
 
@@ -30,6 +37,7 @@ import {
 import { historyFixture as historySubmoduleFixture } from "@pasteboard-pro/contract-fixtures/history";
 import { selectionKeyboardFixture as keyboardSubmoduleFixture } from "@pasteboard-pro/contract-fixtures/keyboard";
 import { aes256GcmZeroVector as syncSubmoduleFixture } from "@pasteboard-pro/contract-fixtures/sync";
+import { deepFreeze } from "../src/freeze";
 
 const HISTORY_IDS = [
   "text-old",
@@ -51,6 +59,41 @@ const PINBOARD_TIMESTAMPS = [
   ["2026-07-01T08:00:00.000Z", "2026-07-10T08:20:00.000Z"],
   ["2026-07-02T08:00:00.000Z", "2026-07-16T09:35:00.000Z"],
 ] as const;
+
+function expectFrozenClocks(
+  fieldClocks: Readonly<Record<string, object>>,
+): void {
+  expect(Object.isFrozen(fieldClocks)).toBe(true);
+  for (const clock of Object.values(fieldClocks)) {
+    expect(Object.isFrozen(clock)).toBe(true);
+  }
+}
+
+function expectClockInRange(
+  wallMs: number,
+  lowerTimestamp: string,
+  upperTimestamp: string,
+): void {
+  expect(wallMs).toBeGreaterThanOrEqual(Date.parse(lowerTimestamp));
+  expect(wallMs).toBeLessThanOrEqual(Date.parse(upperTimestamp));
+}
+
+describe("deepFreeze", () => {
+  it("handles primitives, functions, already-frozen parents, and cycles", () => {
+    const identity = (value: string): string => value;
+    const alreadyFrozen = Object.freeze({ nested: { value: 1 } });
+    const cyclic: { self?: object } = {};
+    cyclic.self = cyclic;
+
+    expect(deepFreeze(null)).toBeNull();
+    expect(deepFreeze(42)).toBe(42);
+    expect(deepFreeze(identity)).toBe(identity);
+    expect(deepFreeze(alreadyFrozen)).toBe(alreadyFrozen);
+    expect(Object.isFrozen(alreadyFrozen.nested)).toBe(true);
+    expect(deepFreeze(cyclic)).toBe(cyclic);
+    expect(Object.isFrozen(cyclic)).toBe(true);
+  });
+});
 
 describe("history and pinboard contract fixtures", () => {
   it("parses every entity, keeps exact identities and timestamps, and freezes top arrays", () => {
@@ -88,20 +131,56 @@ describe("history and pinboard contract fixtures", () => {
   });
 
   it("returns the fixed invoice ranking from real query scoring and capture times", () => {
+    const mutableHistory = structuredClone(historyFixture) as unknown as PasteItem[];
+
     expect(
-      searchPasteItems(historyFixture, "invoice").map(({ id }) => id),
+      searchPasteItems(mutableHistory, "invoice").map(({ id }) => id),
     ).toEqual(["url-middle", "text-old", "image-new"]);
+  });
+
+  it("deep-freezes every nested history and pinboard value", () => {
+    for (const item of historyFixture) {
+      expect(Object.isFrozen(item)).toBe(true);
+      expect(Object.isFrozen(item.payload)).toBe(true);
+      if (item.sourceApp !== undefined) {
+        expect(Object.isFrozen(item.sourceApp)).toBe(true);
+      }
+      if (item.payload.filePaths !== undefined) {
+        expect(Object.isFrozen(item.payload.filePaths)).toBe(true);
+      }
+      expectFrozenClocks(item.fieldClocks);
+    }
+
+    for (const pinboard of pinboardFixture) {
+      expect(Object.isFrozen(pinboard)).toBe(true);
+      expectFrozenClocks(pinboard.fieldClocks);
+    }
+  });
+
+  it("keeps every entity field clock inside its lifecycle", () => {
+    for (const item of historyFixture) {
+      for (const clock of Object.values(item.fieldClocks)) {
+        expectClockInRange(clock.wallMs, item.copiedAt, item.updatedAt);
+      }
+    }
+
+    for (const pinboard of pinboardFixture) {
+      for (const clock of Object.values(pinboard.fieldClocks)) {
+        expectClockInRange(clock.wallMs, pinboard.createdAt, pinboard.updatedAt);
+      }
+    }
   });
 });
 
 describe("keyboard contract fixtures", () => {
   it("replays selection actions with the expected anchor and focus", () => {
-    let state: SelectionState = structuredClone(
+    let state = structuredClone(
       selectionKeyboardFixture.initial,
-    );
+    ) as SelectionState;
 
     for (const step of selectionKeyboardFixture.steps) {
-      state = reduceSelection(state, step.action);
+      const action = structuredClone(step.action) as SelectionAction;
+      state = reduceSelection(state, action);
       expect(state.selected).toEqual(step.expectedSelected);
       expect(state.anchor).toBe(step.expectedAnchor);
       expect(state.focus).toBe(step.expectedFocus);
@@ -109,16 +188,49 @@ describe("keyboard contract fixtures", () => {
   });
 
   it("replays paste-stack actions including deduplication and direction changes", () => {
-    let state: PasteStackState = structuredClone(
+    let state = structuredClone(
       pasteStackKeyboardFixture.initial,
-    );
+    ) as PasteStackState;
 
     for (const step of pasteStackKeyboardFixture.steps) {
-      state = reducePasteStack(state, step.action);
+      const action = structuredClone(step.action) as PasteStackAction;
+      state = reducePasteStack(state, action);
       expect(state).toEqual({
         itemIds: step.expectedItemIds,
         direction: step.expectedDirection,
       });
+    }
+  });
+
+  it("deep-freezes keyboard states, steps, events, actions, and arrays", () => {
+    expect(Object.isFrozen(selectionKeyboardFixture)).toBe(true);
+    expect(Object.isFrozen(selectionKeyboardFixture.orderedIds)).toBe(true);
+    expect(Object.isFrozen(selectionKeyboardFixture.initial)).toBe(true);
+    expect(Object.isFrozen(selectionKeyboardFixture.initial.selected)).toBe(true);
+    expect(Object.isFrozen(selectionKeyboardFixture.steps)).toBe(true);
+
+    for (const step of selectionKeyboardFixture.steps) {
+      expect(Object.isFrozen(step)).toBe(true);
+      expect(Object.isFrozen(step.event)).toBe(true);
+      expect(Object.isFrozen(step.action)).toBe(true);
+      expect(Object.isFrozen(step.expectedSelected)).toBe(true);
+      if ("orderedIds" in step.action) {
+        expect(Object.isFrozen(step.action.orderedIds)).toBe(true);
+      }
+    }
+
+    expect(Object.isFrozen(pasteStackKeyboardFixture)).toBe(true);
+    expect(Object.isFrozen(pasteStackKeyboardFixture.initial)).toBe(true);
+    expect(Object.isFrozen(pasteStackKeyboardFixture.initial.itemIds)).toBe(true);
+    expect(Object.isFrozen(pasteStackKeyboardFixture.steps)).toBe(true);
+
+    for (const step of pasteStackKeyboardFixture.steps) {
+      expect(Object.isFrozen(step)).toBe(true);
+      expect(Object.isFrozen(step.action)).toBe(true);
+      expect(Object.isFrozen(step.expectedItemIds)).toBe(true);
+      if ("itemIds" in step.action) {
+        expect(Object.isFrozen(step.action.itemIds)).toBe(true);
+      }
     }
   });
 });
@@ -127,14 +239,22 @@ describe("sync contract fixtures", () => {
   it("merges concurrent field edits without mutating either fixture side", () => {
     const pasteSnapshot = structuredClone(concurrentPasteItemEdits);
     const pinboardSnapshot = structuredClone(concurrentPinboardEdits);
+    const pasteEdits = structuredClone(concurrentPasteItemEdits) as {
+      left: PasteItem;
+      right: PasteItem;
+    };
+    const pinboardEdits = structuredClone(concurrentPinboardEdits) as {
+      left: Pinboard;
+      right: Pinboard;
+    };
 
     const mergedPaste = mergePasteItem(
-      concurrentPasteItemEdits.left,
-      concurrentPasteItemEdits.right,
+      pasteEdits.left,
+      pasteEdits.right,
     );
     const mergedPinboard = mergePinboard(
-      concurrentPinboardEdits.left,
-      concurrentPinboardEdits.right,
+      pinboardEdits.left,
+      pinboardEdits.right,
     );
 
     expect({
@@ -151,11 +271,87 @@ describe("sync contract fixtures", () => {
 
   it("lets the newer tombstone win without changing the live or deleted fixture", () => {
     const snapshot = structuredClone(tombstoneFixture);
+    const mutableFixture = structuredClone(tombstoneFixture) as {
+      live: PasteItem;
+      tombstone: Tombstone;
+    };
 
     expect(
-      mergeEntity(tombstoneFixture.live, tombstoneFixture.tombstone),
+      mergeEntity(mutableFixture.live, mutableFixture.tombstone),
     ).toMatchObject({ id: "text-old", deleted: true });
     expect(tombstoneFixture).toEqual(snapshot);
+  });
+
+  it("deep-freezes sync edits, expected values, tombstones, and clocks", () => {
+    for (const fixture of [
+      concurrentPasteItemEdits,
+      concurrentPinboardEdits,
+    ]) {
+      expect(Object.isFrozen(fixture)).toBe(true);
+      expect(Object.isFrozen(fixture.left)).toBe(true);
+      expect(Object.isFrozen(fixture.right)).toBe(true);
+      expect(Object.isFrozen(fixture.expected)).toBe(true);
+      expectFrozenClocks(fixture.left.fieldClocks);
+      expectFrozenClocks(fixture.right.fieldClocks);
+    }
+
+    expect(Object.isFrozen(concurrentPasteItemEdits.left.sourceApp)).toBe(true);
+    expect(Object.isFrozen(concurrentPasteItemEdits.right.sourceApp)).toBe(true);
+    expect(Object.isFrozen(concurrentPasteItemEdits.left.payload)).toBe(true);
+    expect(Object.isFrozen(concurrentPasteItemEdits.right.payload)).toBe(true);
+    expect(Object.isFrozen(tombstoneFixture)).toBe(true);
+    expect(Object.isFrozen(tombstoneFixture.live)).toBe(true);
+    expect(Object.isFrozen(tombstoneFixture.live.sourceApp)).toBe(true);
+    expect(Object.isFrozen(tombstoneFixture.live.payload)).toBe(true);
+    expectFrozenClocks(tombstoneFixture.live.fieldClocks);
+    expect(Object.isFrozen(tombstoneFixture.tombstone)).toBe(true);
+    expect(Object.isFrozen(tombstoneFixture.tombstone.clock)).toBe(true);
+  });
+
+  it("keeps sync clocks inside lifecycle bounds while preserving winners", () => {
+    for (const side of [
+      concurrentPasteItemEdits.left,
+      concurrentPasteItemEdits.right,
+    ]) {
+      for (const clock of Object.values(side.fieldClocks)) {
+        expectClockInRange(clock.wallMs, side.copiedAt, side.updatedAt);
+      }
+    }
+    for (const side of [
+      concurrentPinboardEdits.left,
+      concurrentPinboardEdits.right,
+    ]) {
+      for (const clock of Object.values(side.fieldClocks)) {
+        expectClockInRange(clock.wallMs, side.createdAt, side.updatedAt);
+      }
+    }
+    for (const clock of Object.values(tombstoneFixture.live.fieldClocks)) {
+      expectClockInRange(
+        clock.wallMs,
+        tombstoneFixture.live.copiedAt,
+        tombstoneFixture.live.updatedAt,
+      );
+    }
+    expect(tombstoneFixture.tombstone.clock.wallMs).toBe(
+      Date.parse(tombstoneFixture.tombstone.deletedAt),
+    );
+
+    expect(concurrentPasteItemEdits.left.fieldClocks.title!.wallMs).toBeGreaterThan(
+      concurrentPasteItemEdits.right.fieldClocks.title!.wallMs,
+    );
+    expect(
+      concurrentPasteItemEdits.right.fieldClocks.pinboardId!.wallMs,
+    ).toBeGreaterThan(
+      concurrentPasteItemEdits.left.fieldClocks.pinboardId!.wallMs,
+    );
+    expect(concurrentPinboardEdits.left.fieldClocks.name!.wallMs).toBeGreaterThan(
+      concurrentPinboardEdits.right.fieldClocks.name!.wallMs,
+    );
+    expect(
+      concurrentPinboardEdits.right.fieldClocks.color!.wallMs,
+    ).toBeGreaterThan(
+      concurrentPinboardEdits.left.fieldClocks.color!.wallMs,
+    );
   });
 });
 
@@ -189,6 +385,24 @@ describe("AES-256-GCM fixed-byte contract vector", () => {
     expect(aes256GcmZeroVector.ciphertextHex.length / 2).toBe(16);
     expect(aes256GcmZeroVector.tagHex.length / 2).toBe(16);
   });
+
+  it("matches the fixed vector with Node native crypto", () => {
+    const cipher = createCipheriv(
+      "aes-256-gcm",
+      Buffer.from(aes256GcmZeroVector.keyHex, "hex"),
+      Buffer.from(aes256GcmZeroVector.nonceHex, "hex"),
+    );
+    cipher.setAAD(Buffer.from(aes256GcmZeroVector.aadHex, "hex"));
+    const ciphertext = Buffer.concat([
+      cipher.update(Buffer.from(aes256GcmZeroVector.plaintextHex, "hex")),
+      cipher.final(),
+    ]);
+
+    expect(ciphertext.toString("hex")).toBe(
+      aes256GcmZeroVector.ciphertextHex,
+    );
+    expect(cipher.getAuthTag().toString("hex")).toBe(aes256GcmZeroVector.tagHex);
+  });
 });
 
 describe("fixture source determinism and public imports", () => {
@@ -203,17 +417,82 @@ describe("fixture source determinism and public imports", () => {
       ),
     );
 
-    expect(sourceFiles.sort()).toEqual([
-      "history.ts",
-      "index.ts",
-      "keyboard.ts",
-      "sync.ts",
-    ]);
+    expect(sourceFiles).toEqual(
+      expect.arrayContaining([
+        "freeze.ts",
+        "history.ts",
+        "index.ts",
+        "keyboard.ts",
+        "sync.ts",
+      ]),
+    );
+    expect(sourceFiles).toHaveLength(new Set(sourceFiles).size);
     for (const source of sources) {
-      expect(source).not.toContain("Date.now(");
-      expect(source).not.toContain("Math.random(");
-      expect(source).not.toContain("randomUUID(");
+      expect(source).not.toMatch(/Date\s*\.\s*now\s*\(/);
+      expect(source).not.toMatch(/Math\s*\.\s*random\s*\(/);
+      expect(source).not.toMatch(/randomUUID\s*\(/);
+      expect(source).not.toMatch(/getRandomValues\s*\(/);
+      expect(source).not.toMatch(/new\s+Date\s*\(/);
     }
+  });
+
+  it("marks the package private while retaining all public exports", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { private?: boolean; exports?: Record<string, string> };
+
+    expect(packageJson.private).toBe(true);
+    expect(packageJson.exports).toEqual({
+      ".": "./src/index.ts",
+      "./history": "./src/history.ts",
+      "./keyboard": "./src/keyboard.ts",
+      "./sync": "./src/sync.ts",
+    });
+  });
+
+  it("loads the root and every subpath with Node native ESM", () => {
+    const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+    const smoke = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `
+          const root = await import("@pasteboard-pro/contract-fixtures");
+          const history = await import("@pasteboard-pro/contract-fixtures/history");
+          const keyboard = await import("@pasteboard-pro/contract-fixtures/keyboard");
+          const sync = await import("@pasteboard-pro/contract-fixtures/sync");
+          if (root.historyFixture !== history.historyFixture) throw new Error("history export mismatch");
+          if (root.selectionKeyboardFixture !== keyboard.selectionKeyboardFixture) throw new Error("keyboard export mismatch");
+          if (root.aes256GcmZeroVector !== sync.aes256GcmZeroVector) throw new Error("sync export mismatch");
+          if ("deepFreeze" in root) throw new Error("private freeze helper leaked");
+        `,
+      ],
+      { cwd: workspaceRoot, encoding: "utf8" },
+    );
+
+    expect(smoke.status, smoke.stderr || smoke.stdout).toBe(0);
+  });
+
+  it("rejects nested mutation without changing fixture values", () => {
+    const originalText = historyFixture[0]!.payload.text;
+    const originalKey = selectionKeyboardFixture.steps[0]!.event.key;
+    const originalWallMs = tombstoneFixture.tombstone.clock.wallMs;
+    const originalTag = aes256GcmZeroVector.tagHex;
+
+    expect(Reflect.set(historyFixture[0]!.payload, "text", "mutated")).toBe(false);
+    expect(
+      Reflect.set(selectionKeyboardFixture.steps[0]!.event, "key", "Enter"),
+    ).toBe(false);
+    expect(
+      Reflect.set(tombstoneFixture.tombstone.clock, "wallMs", 0),
+    ).toBe(false);
+    expect(Reflect.set(aes256GcmZeroVector, "tagHex", "00")).toBe(false);
+
+    expect(historyFixture[0]!.payload.text).toBe(originalText);
+    expect(selectionKeyboardFixture.steps[0]!.event.key).toBe(originalKey);
+    expect(tombstoneFixture.tombstone.clock.wallMs).toBe(originalWallMs);
+    expect(aes256GcmZeroVector.tagHex).toBe(originalTag);
   });
 
   it("exposes the root fixture API and each public source submodule", () => {

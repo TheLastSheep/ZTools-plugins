@@ -1,6 +1,7 @@
 import type { PasteItem, Pinboard } from "@pasteboard-pro/core";
+import { deepFreeze } from "#freeze";
 
-export const historyFixture: readonly PasteItem[] = Object.freeze([
+export const historyFixture = deepFreeze([
   {
     id: "text-old",
     kind: "text",
@@ -21,11 +22,11 @@ export const historyFixture: readonly PasteItem[] = Object.freeze([
     pinboardOrderKey: "a0",
     pinned: true,
     fieldClocks: {
-      title: { wallMs: 1_752_135_300_000, counter: 0, deviceId: "device-mac-studio" },
-      payload: { wallMs: 1_752_135_300_000, counter: 1, deviceId: "device-mac-studio" },
-      pinboardId: { wallMs: 1_752_135_600_000, counter: 0, deviceId: "device-mac-studio" },
-      pinboardOrderKey: { wallMs: 1_752_135_600_000, counter: 1, deviceId: "device-mac-studio" },
-      pinned: { wallMs: 1_752_135_600_000, counter: 2, deviceId: "device-mac-studio" },
+      title: { wallMs: 1783671300000, counter: 0, deviceId: "device-mac-studio" },
+      payload: { wallMs: 1783671300000, counter: 1, deviceId: "device-mac-studio" },
+      pinboardId: { wallMs: 1783671600000, counter: 0, deviceId: "device-mac-studio" },
+      pinboardOrderKey: { wallMs: 1783671600000, counter: 1, deviceId: "device-mac-studio" },
+      pinned: { wallMs: 1783671600000, counter: 2, deviceId: "device-mac-studio" },
     },
   },
   {
@@ -50,11 +51,11 @@ export const historyFixture: readonly PasteItem[] = Object.freeze([
     pinboardOrderKey: "a0",
     pinned: false,
     fieldClocks: {
-      payload: { wallMs: 1_752_655_400_000, counter: 0, deviceId: "device-iphone-15" },
-      ocrText: { wallMs: 1_752_655_700_000, counter: 0, deviceId: "device-iphone-15" },
-      pinboardId: { wallMs: 1_752_655_700_000, counter: 1, deviceId: "device-iphone-15" },
-      pinboardOrderKey: { wallMs: 1_752_655_700_000, counter: 2, deviceId: "device-iphone-15" },
-      pinned: { wallMs: 1_752_655_700_000, counter: 3, deviceId: "device-iphone-15" },
+      payload: { wallMs: 1784194200000, counter: 0, deviceId: "device-iphone-15" },
+      ocrText: { wallMs: 1784194500000, counter: 0, deviceId: "device-iphone-15" },
+      pinboardId: { wallMs: 1784194500000, counter: 1, deviceId: "device-iphone-15" },
+      pinboardOrderKey: { wallMs: 1784194500000, counter: 2, deviceId: "device-iphone-15" },
+      pinned: { wallMs: 1784194500000, counter: 3, deviceId: "device-iphone-15" },
     },
   },
   {
@@ -78,10 +79,10 @@ export const historyFixture: readonly PasteItem[] = Object.freeze([
     pinboardOrderKey: "a1",
     pinned: true,
     fieldClocks: {
-      payload: { wallMs: 1_752_502_800_000, counter: 0, deviceId: "device-macbook-air" },
-      pinboardId: { wallMs: 1_752_503_100_000, counter: 0, deviceId: "device-macbook-air" },
-      pinboardOrderKey: { wallMs: 1_752_503_100_000, counter: 1, deviceId: "device-macbook-air" },
-      pinned: { wallMs: 1_752_503_100_000, counter: 2, deviceId: "device-macbook-air" },
+      payload: { wallMs: 1784037600000, counter: 0, deviceId: "device-macbook-air" },
+      pinboardId: { wallMs: 1784037900000, counter: 0, deviceId: "device-macbook-air" },
+      pinboardOrderKey: { wallMs: 1784037900000, counter: 1, deviceId: "device-macbook-air" },
+      pinned: { wallMs: 1784037900000, counter: 2, deviceId: "device-macbook-air" },
     },
   },
   {
@@ -107,10 +108,10 @@ export const historyFixture: readonly PasteItem[] = Object.freeze([
     pinboardOrderKey: "a1",
     pinned: false,
     fieldClocks: {
-      payload: { wallMs: 1_752_408_300_000, counter: 0, deviceId: "device-mac-studio" },
-      pinboardId: { wallMs: 1_752_408_600_000, counter: 0, deviceId: "device-mac-studio" },
-      pinboardOrderKey: { wallMs: 1_752_408_600_000, counter: 1, deviceId: "device-mac-studio" },
-      pinned: { wallMs: 1_752_408_600_000, counter: 2, deviceId: "device-mac-studio" },
+      payload: { wallMs: 1783943100000, counter: 0, deviceId: "device-mac-studio" },
+      pinboardId: { wallMs: 1783943400000, counter: 0, deviceId: "device-mac-studio" },
+      pinboardOrderKey: { wallMs: 1783943400000, counter: 1, deviceId: "device-mac-studio" },
+      pinned: { wallMs: 1783943400000, counter: 2, deviceId: "device-mac-studio" },
     },
   },
   {
@@ -131,13 +132,13 @@ export const historyFixture: readonly PasteItem[] = Object.freeze([
     },
     pinned: false,
     fieldClocks: {
-      payload: { wallMs: 1_752_337_000_000, counter: 0, deviceId: "device-macbook-air" },
-      pinned: { wallMs: 1_752_337_120_000, counter: 0, deviceId: "device-macbook-air" },
+      payload: { wallMs: 1783872600000, counter: 0, deviceId: "device-macbook-air" },
+      pinned: { wallMs: 1783872720000, counter: 0, deviceId: "device-macbook-air" },
     },
   },
 ] satisfies readonly PasteItem[]);
 
-export const pinboardFixture: readonly Pinboard[] = Object.freeze([
+export const pinboardFixture = deepFreeze([
   {
     id: "board-work",
     name: "Work",
@@ -146,9 +147,9 @@ export const pinboardFixture: readonly Pinboard[] = Object.freeze([
     createdAt: "2026-07-01T08:00:00.000Z",
     updatedAt: "2026-07-10T08:20:00.000Z",
     fieldClocks: {
-      name: { wallMs: 1_751_356_800_000, counter: 0, deviceId: "device-mac-studio" },
-      color: { wallMs: 1_751_356_800_000, counter: 1, deviceId: "device-mac-studio" },
-      orderKey: { wallMs: 1_751_356_800_000, counter: 2, deviceId: "device-mac-studio" },
+      name: { wallMs: 1782892800000, counter: 0, deviceId: "device-mac-studio" },
+      color: { wallMs: 1782892800000, counter: 1, deviceId: "device-mac-studio" },
+      orderKey: { wallMs: 1782892800000, counter: 2, deviceId: "device-mac-studio" },
     },
   },
   {
@@ -159,9 +160,9 @@ export const pinboardFixture: readonly Pinboard[] = Object.freeze([
     createdAt: "2026-07-02T08:00:00.000Z",
     updatedAt: "2026-07-16T09:35:00.000Z",
     fieldClocks: {
-      name: { wallMs: 1_751_443_200_000, counter: 0, deviceId: "device-macbook-air" },
-      color: { wallMs: 1_751_443_200_000, counter: 1, deviceId: "device-macbook-air" },
-      orderKey: { wallMs: 1_751_443_200_000, counter: 2, deviceId: "device-macbook-air" },
+      name: { wallMs: 1782979200000, counter: 0, deviceId: "device-macbook-air" },
+      color: { wallMs: 1782979200000, counter: 1, deviceId: "device-macbook-air" },
+      orderKey: { wallMs: 1782979200000, counter: 2, deviceId: "device-macbook-air" },
     },
   },
 ] satisfies readonly Pinboard[]);

@@ -1,4 +1,6 @@
 import {
+  compareStableOrder,
+  orderKeyBetween,
   PasteItemSchema,
   searchPasteItems,
   type HybridClock,
@@ -16,6 +18,8 @@ export type CanonicalClipboardOrigin = Readonly<{
   hostItemId: string;
   hostType: "text" | "image" | "file";
   imagePath?: string;
+  blobBytes?: number;
+  pluginBlobId?: string;
 }>;
 
 export type CanonicalClipboardRecord = Readonly<{
@@ -34,7 +38,18 @@ export interface ZToolsDocumentDatabase {
   get(id: string): Promise<unknown>;
   put(document: Record<string, unknown>): Promise<unknown>;
   allDocs?(options: Readonly<Record<string, unknown>>): Promise<unknown>;
+  remove?(document: unknown): Promise<unknown>;
 }
+
+export type DeleteRecordsResult = Readonly<{
+  deletedIds: string[];
+  failures: Array<Readonly<{ id: string; error: string }>>;
+}>;
+
+export type CanonicalStoreOptions = Readonly<{
+  deviceId?: string;
+  now?: () => number;
+}>;
 
 export interface HostClipboardApi {
   getHistory(
@@ -147,6 +162,12 @@ function storedRecord(value: unknown): CanonicalClipboardRecord | undefined {
       ...(typeof origin.imagePath === "string"
         ? { imagePath: origin.imagePath }
         : {}),
+      ...(Number.isSafeInteger(origin.blobBytes) && Number(origin.blobBytes) >= 0
+        ? { blobBytes: Number(origin.blobBytes) }
+        : {}),
+      ...(typeof origin.pluginBlobId === "string"
+        ? { pluginBlobId: origin.pluginBlobId }
+        : {}),
     },
   };
 }
@@ -176,7 +197,16 @@ async function putWithConflictRetry(
 }
 
 export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
-  constructor(private readonly database: ZToolsDocumentDatabase) {}
+  private readonly deviceId: string;
+  private readonly now: () => number;
+
+  constructor(
+    private readonly database: ZToolsDocumentDatabase,
+    options: CanonicalStoreOptions = {},
+  ) {
+    this.deviceId = options.deviceId?.trim() || "ztools-local";
+    this.now = options.now ?? Date.now;
+  }
 
   async findByFingerprint(fingerprint: string): Promise<PasteItem | undefined> {
     const document = await getOptionalDocument(
@@ -264,8 +294,147 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     return (await this.listRecords()).find((record) => record.item.id === itemId);
   }
 
+  async deleteRecords(itemIds: readonly string[]): Promise<DeleteRecordsResult> {
+    if (this.database.remove === undefined) {
+      throw new TypeError("ZTools database does not expose remove");
+    }
+    const requested = new Set(itemIds);
+    const records = (await this.listRecords()).filter((record) =>
+      requested.has(record.item.id),
+    );
+    const deletedIds: string[] = [];
+    const failures: Array<{ id: string; error: string }> = [];
+
+    for (const record of records) {
+      const documentId = this.recordDocumentId(record.item.contentFingerprint);
+      try {
+        const document = await this.database.get(documentId);
+        await this.database.remove(document);
+        deletedIds.push(record.item.id);
+      } catch (error) {
+        if (isDatabaseStatus(error, 404)) {
+          deletedIds.push(record.item.id);
+        } else {
+          failures.push({
+            id: record.item.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    for (const missingId of requested) {
+      if (!records.some((record) => record.item.id === missingId)) {
+        deletedIds.push(missingId);
+      }
+    }
+
+    return { deletedIds, failures };
+  }
+
+  async assignToPinboard(
+    itemIds: readonly string[],
+    pinboardId: string | undefined,
+  ): Promise<CanonicalClipboardRecord[]> {
+    const requestedIds = [...new Set(itemIds)];
+    const records = await this.listRecords();
+    const recordsById = new Map(records.map((record) => [record.item.id, record]));
+    for (const id of requestedIds) {
+      if (!recordsById.has(id)) {
+        throw new RangeError(`Clipboard item ${id} does not exist`);
+      }
+    }
+
+    const requestedSet = new Set(requestedIds);
+    const existingBoardItems =
+      pinboardId === undefined
+        ? []
+        : records
+            .filter(
+              (record) =>
+                !requestedSet.has(record.item.id) &&
+                record.item.pinboardId === pinboardId &&
+                record.item.pinboardOrderKey !== undefined,
+            )
+            .map((record) => ({
+              id: record.item.id,
+              orderKey: record.item.pinboardOrderKey!,
+            }))
+            .sort(compareStableOrder);
+    let previousOrderKey = existingBoardItems.at(-1)?.orderKey;
+    const updatedRecords: CanonicalClipboardRecord[] = [];
+
+    for (const id of requestedIds) {
+      const record = recordsById.get(id)!;
+      const timestamp = this.validTimestamp();
+      const clock = (counter: number): HybridClock => ({
+        wallMs: timestamp,
+        counter,
+        deviceId: this.deviceId,
+      });
+      const { pinboardId: _oldPinboardId, pinboardOrderKey: _oldOrderKey, ...base } =
+        record.item;
+      const nextOrderKey =
+        pinboardId === undefined
+          ? undefined
+          : orderKeyBetween(previousOrderKey, undefined);
+      const item = PasteItemSchema.parse({
+        ...base,
+        ...(pinboardId === undefined ? {} : { pinboardId }),
+        ...(nextOrderKey === undefined ? {} : { pinboardOrderKey: nextOrderKey }),
+        updatedAt: new Date(timestamp).toISOString(),
+        fieldClocks: {
+          ...record.item.fieldClocks,
+          pinboardId: clock(0),
+          pinboardOrderKey: clock(1),
+        },
+      });
+      const updated = { item, origin: record.origin };
+      await this.put(updated);
+      updatedRecords.push(updated);
+      previousOrderKey = nextOrderKey;
+    }
+
+    return updatedRecords;
+  }
+
+  async updateOcrText(
+    itemId: string,
+    ocrText: string | undefined,
+  ): Promise<CanonicalClipboardRecord> {
+    const record = await this.findRecordByItemId(itemId);
+    if (record === undefined) {
+      throw new RangeError("Clipboard item does not exist");
+    }
+    const timestamp = this.validTimestamp();
+    const { ocrText: _oldOcrText, ...base } = record.item;
+    const normalized = ocrText?.trim();
+    const item = PasteItemSchema.parse({
+      ...base,
+      ...(normalized === undefined || normalized.length === 0
+        ? {}
+        : { ocrText: normalized }),
+      updatedAt: new Date(timestamp).toISOString(),
+      fieldClocks: {
+        ...record.item.fieldClocks,
+        ocrText: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
+      },
+    });
+    const updated = { item, origin: record.origin };
+    await this.put(updated);
+    return updated;
+  }
+
   private recordDocumentId(fingerprint: string): string {
     return `pasteboard-pro:record:${fingerprint}`;
+  }
+
+  private validTimestamp(): number {
+    const value = this.now();
+    if (!Number.isSafeInteger(value) || !Number.isFinite(new Date(value).getTime())) {
+      throw new RangeError("Canonical store clock returned an invalid timestamp");
+    }
+    return value;
   }
 }
 
@@ -458,11 +627,18 @@ export function normalizeHostClipboardItem(
       mediaType: inferImageMediaType(imagePath),
     };
     title = nonEmptyString(value.preview);
+    const blobBytes =
+      Number.isSafeInteger(value.byteSize) && Number(value.byteSize) >= 0
+        ? Number(value.byteSize)
+        : Number.isSafeInteger(value.size) && Number(value.size) >= 0
+          ? Number(value.size)
+          : undefined;
     origin = {
       host: "ztools",
       hostItemId: cursor.id,
       hostType,
       imagePath,
+      ...(blobBytes === undefined ? {} : { blobBytes }),
     };
   } else {
     const files = normalizeFiles(value);

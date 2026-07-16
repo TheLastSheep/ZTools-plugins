@@ -267,5 +267,17 @@ describe("ZTools clipboard adapter", () => {
     await expect(store.findRecordByItemId("ztools:text-1")).resolves.toEqual(
       record,
     );
+    await store.assignToPinboard(["ztools:text-1"], "board-work");
+    await expect(store.findRecordByItemId("ztools:text-1")).resolves.toMatchObject({
+      item: { pinboardId: "board-work", pinboardOrderKey: expect.any(String) },
+    });
+    await store.assignToPinboard(["ztools:text-1"], undefined);
+    await expect(store.findRecordByItemId("ztools:text-1")).resolves.not.toHaveProperty(
+      "item.pinboardId",
+    );
+    await store.updateOcrText("ztools:text-1", "  recognized invoice  ");
+    await expect(store.findRecordByItemId("ztools:text-1")).resolves.toMatchObject({
+      item: { ocrText: "recognized invoice" },
+    });
   });
 });

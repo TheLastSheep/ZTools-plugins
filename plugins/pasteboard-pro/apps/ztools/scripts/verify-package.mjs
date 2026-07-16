@@ -15,7 +15,7 @@ assert.equal(packageJson.private, true);
 assert.equal(packageJson.type, "module");
 assert.equal(
   packageJson.scripts.build,
-  "pnpm run build:renderer && pnpm run build:preload",
+  "pnpm run build:renderer && pnpm run build:preload && pnpm run assemble",
 );
 assert.equal(packageJson.scripts.verify, "node scripts/verify-package.mjs");
 assert.equal(packageJson.scripts.typecheck, "vue-tsc --noEmit -p tsconfig.vue.json");
@@ -47,6 +47,15 @@ for (const path of [
   "index.html",
   "public/logo.svg",
   "preload/index.ts",
+  "preload/ocr.ts",
+  "preload/pinboard-store.ts",
+  "preload/privacy.ts",
+  "preload/retention.ts",
+  "preload/tools.ts",
+  "preload/window.ts",
+  "native/vision-helper/main.swift",
+  "native/vision-helper/build.sh",
+  "scripts/assemble-dist.mjs",
   "src/main.ts",
   "src/App.vue",
   "src/state.ts",

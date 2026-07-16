@@ -30,8 +30,12 @@ const emit = defineEmits<{
   select: [itemId: string, extend: boolean, toggle: boolean];
   paste: [itemId: string];
   preview: [itemId: string];
+  ocr: [itemId: string];
   closePreview: [];
   selectPinboard: [id: string | undefined];
+  createPinboard: [name: string];
+  renamePinboard: [id: string, name: string];
+  assignPinboard: [pinboardId: string | undefined, itemId: string];
   togglePause: [];
   toggleCompact: [];
   toggleStackDirection: [];
@@ -42,6 +46,17 @@ const style = computed(() => visualState(props.edge, props.density));
 
 function forwardSelect(itemId: string, extend: boolean, toggle: boolean): void {
   emit("select", itemId, extend, toggle);
+}
+
+function forwardRenamePinboard(id: string, name: string): void {
+  emit("renamePinboard", id, name);
+}
+
+function forwardAssignPinboard(
+  pinboardId: string | undefined,
+  itemId: string,
+): void {
+  emit("assignPinboard", pinboardId, itemId);
 }
 </script>
 
@@ -64,6 +79,9 @@ function forwardSelect(itemId: string, extend: boolean, toggle: boolean): void {
       :pinboards="pinboards"
       :active-id="activePinboardId"
       @select="emit('selectPinboard', $event)"
+      @create="emit('createPinboard', $event)"
+      @rename="forwardRenamePinboard"
+      @assign="forwardAssignPinboard"
     />
     <Timeline
       :items="items"
@@ -77,6 +95,7 @@ function forwardSelect(itemId: string, extend: boolean, toggle: boolean): void {
       :item="previewItem"
       @close="emit('closePreview')"
       @paste="emit('paste', $event)"
+      @ocr="emit('ocr', $event)"
     />
     <PasteStack
       :count="pasteStackCount"

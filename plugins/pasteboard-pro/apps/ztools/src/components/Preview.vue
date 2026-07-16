@@ -2,7 +2,11 @@
 import type { PasteItem } from "@pasteboard-pro/core";
 
 defineProps<{ item: PasteItem }>();
-const emit = defineEmits<{ close: []; paste: [itemId: string] }>();
+const emit = defineEmits<{
+  close: [];
+  paste: [itemId: string];
+  ocr: [itemId: string];
+}>();
 </script>
 
 <template>
@@ -17,7 +21,12 @@ const emit = defineEmits<{ close: []; paste: [itemId: string] }>();
     <pre>{{ item.payload.text ?? item.ocrText ?? item.payload.filePaths?.join('\n') ?? item.payload.mediaType }}</pre>
     <footer>
       <span>{{ item.sourceApp?.name ?? "Unknown app" }}</span>
-      <button type="button" @click="emit('paste', item.id)">粘贴</button>
+      <div>
+        <button v-if="item.kind === 'image'" type="button" class="secondary" @click="emit('ocr', item.id)">
+          识别文字
+        </button>
+        <button type="button" @click="emit('paste', item.id)">粘贴</button>
+      </div>
     </footer>
   </aside>
 </template>
@@ -95,5 +104,15 @@ footer button {
   padding: 0 16px;
   background: var(--pb-violet);
   color: white;
+}
+
+footer div {
+  display: flex;
+  gap: 8px;
+}
+
+footer button.secondary {
+  background: var(--pb-glass);
+  color: var(--pb-violet);
 }
 </style>

@@ -12,6 +12,7 @@ const normalizedWorkspace = workspace.replaceAll("\r\n", "\n");
 assert.equal(pkg.private, true);
 assert.equal(pkg.packageManager, "pnpm@11.7.0");
 assert.equal(pkg.scripts.test, "vitest run");
+assert.equal(pkg.scripts.build, "pnpm --filter @pasteboard-pro/ztools build");
 assert.equal(
   normalizedWorkspace,
   "packages:\n  - packages/*\n  - apps/*\n",

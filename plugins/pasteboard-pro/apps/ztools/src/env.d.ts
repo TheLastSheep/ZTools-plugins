@@ -19,6 +19,19 @@ declare global {
       pasteHostItem(hostItemId: string): Promise<DirectPasteResult>;
       pasteContent(content: ClipboardWriteContent): Promise<DirectPasteResult>;
       pasteItem(itemId: string): Promise<DirectPasteResult>;
+      listPinboards(): Promise<unknown[]>;
+      createPinboard(name: string, color: string): Promise<unknown>;
+      renamePinboard(id: string, name: string): Promise<unknown>;
+      movePinboard(
+        id: string,
+        beforeId?: string,
+        afterId?: string,
+      ): Promise<unknown>;
+      assignItemsToPinboard(
+        itemIds: readonly string[],
+        pinboardId: string | undefined,
+      ): Promise<unknown[]>;
+      recognizeItem(itemId: string): Promise<string>;
     }>;
   }
 }

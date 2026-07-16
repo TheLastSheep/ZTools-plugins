@@ -24,7 +24,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-pasteboardpro-helper:
+    runs-on: macos-14
+    steps:
+      - name: Checkout PR code
+        env:
+          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "pull/${PR_NUMBER}/head"
+          git checkout --force FETCH_HEAD
+
+      - name: Detect PasteboardPro helper requirement
+        id: helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if gh api --paginate "/repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename' | grep -q '^plugins/pasteboard-pro/'; then
+            echo "required=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "required=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Build Vision helper
+        if: steps.helper.outputs.required == 'true'
+        run: |
+          plugins/pasteboard-pro/apps/ztools/native/vision-helper/build.sh
+          codesign --force --sign - plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          codesign --verify --strict plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+
+      - name: Upload Vision helper
+        if: steps.helper.outputs.required == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasteboardpro-vision-pr-${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
+          path: plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          if-no-files-found: error
+          retention-days: 3
+
   build-pr-plugin:
+    needs: build-pasteboardpro-helper
     runs-on: ubuntu-latest
 
     steps:
@@ -178,6 +222,29 @@ jobs:
           NODE
 
           cat release/build-info.json
+
+      - name: Setup Node.js 24 for PasteboardPro
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm 11 for PasteboardPro
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11.7.0
+
+      - name: Download PasteboardPro Vision helper
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: actions/download-artifact@v4
+        with:
+          name: pasteboardpro-vision-pr-${{ steps.pr.outputs.number }}
+          path: plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist
+
+      - name: Restore Vision helper executable bit
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        run: chmod +x plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
 
       - name: Install root dependencies
         if: steps.detect.outputs.has_changes == 'true'

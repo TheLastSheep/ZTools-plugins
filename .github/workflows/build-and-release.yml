@@ -13,7 +13,86 @@ on:
         default: false
 
 jobs:
+  build-pasteboardpro-helper:
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect PasteboardPro helper requirement
+        id: helper
+        env:
+          BUILD_ALL: ${{ github.event.inputs.build_all || 'false' }}
+        run: |
+          if [ "${BUILD_ALL}" = "true" ] || ! git diff --quiet HEAD~1 HEAD -- plugins/pasteboard-pro; then
+            echo "required=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "required=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Import Developer ID certificate
+        if: steps.helper.outputs.required == 'true'
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          test -n "${APPLE_CERTIFICATE_P12_BASE64}"
+          test -n "${APPLE_CERTIFICATE_PASSWORD}"
+          test -n "${APPLE_SIGNING_IDENTITY}"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 24)
+          echo "${APPLE_CERTIFICATE_P12_BASE64}" | base64 --decode > signing-certificate.p12
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" build.keychain
+          security import signing-certificate.p12 -k build.keychain -P "${APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "${KEYCHAIN_PASSWORD}" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: Build Vision helper
+        if: steps.helper.outputs.required == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          plugins/pasteboard-pro/apps/ztools/native/vision-helper/build.sh
+          codesign --force --options runtime --timestamp --sign "${APPLE_SIGNING_IDENTITY}" plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          codesign --verify --deep --strict --verbose=2 plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+
+      - name: Notarize Vision helper
+        if: steps.helper.outputs.required == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${APPLE_ID}"
+          test -n "${APPLE_APP_SPECIFIC_PASSWORD}"
+          test -n "${APPLE_TEAM_ID}"
+          ditto -c -k --keepParent plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision pasteboard-vision-notarization.zip
+          xcrun notarytool submit pasteboard-vision-notarization.zip \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --wait
+          spctl --assess --type execute --verbose=4 plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+
+      - name: Upload Vision helper
+        if: steps.helper.outputs.required == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasteboardpro-vision-${{ github.sha }}
+          path: plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          if-no-files-found: error
+          retention-days: 3
+
   build-and-release:
+    needs: build-pasteboardpro-helper
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -90,6 +169,29 @@ jobs:
           node scripts/detect-changes.js
         env:
           BUILD_ALL: ${{ github.event.inputs.build_all || 'false' }}
+
+      - name: Setup Node.js 24 for PasteboardPro
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm 11 for PasteboardPro
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11.7.0
+
+      - name: Download PasteboardPro Vision helper
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: actions/download-artifact@v4
+        with:
+          name: pasteboardpro-vision-${{ github.sha }}
+          path: plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist
+
+      - name: Restore Vision helper executable bit
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        run: chmod +x plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
 
       - name: Build plugins
         if: steps.detect.outputs.has_changes == 'true'

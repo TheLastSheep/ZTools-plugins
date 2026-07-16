@@ -15,6 +15,13 @@ const emit = defineEmits<{
   preview: [itemId: string];
 }>();
 
+function beginDrag(event: DragEvent): void {
+  event.dataTransfer?.setData("application/x-pasteboard-pro-item", props.item.id);
+  if (event.dataTransfer !== null) {
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+
 const bodyText = computed(() => {
   if (props.item.payload.text !== undefined) return props.item.payload.text;
   if (props.item.payload.filePaths !== undefined) {
@@ -32,6 +39,8 @@ const bodyText = computed(() => {
     :aria-selected="selected"
     role="option"
     tabindex="0"
+    draggable="true"
+    @dragstart="beginDrag"
     @click="emit('select', item.id, $event.shiftKey, $event.metaKey)"
     @dblclick="emit('paste', item.id)"
     @keydown.enter="emit('paste', item.id)"

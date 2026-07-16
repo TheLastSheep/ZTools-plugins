@@ -1,9 +1,12 @@
+import path from "node:path";
+
 import {
   mirrorHostHistory,
   ZToolsCanonicalClipboardStore,
   type HostClipboardApi,
   type ZToolsDocumentDatabase,
 } from "./clipboard-store";
+import { createOcrClient } from "./ocr";
 import {
   isCapturePaused,
   performDirectPaste,
@@ -16,6 +19,8 @@ import {
   type DirectPasteResult,
   type PrivacySettings,
 } from "./privacy";
+import { ZToolsPinboardStore } from "./pinboard-store";
+import { executeRetentionPrune } from "./retention";
 import { createSearchHistoryHandler } from "./tools";
 import {
   ShelfWindowManager,
@@ -63,6 +68,19 @@ type PasteboardProBridge = Readonly<{
   pasteHostItem(hostItemId: string): Promise<DirectPasteResult>;
   pasteContent(content: ClipboardWriteContent): Promise<DirectPasteResult>;
   pasteItem(itemId: string): Promise<DirectPasteResult>;
+  listPinboards(): Promise<unknown[]>;
+  createPinboard(name: string, color: string): Promise<unknown>;
+  renamePinboard(id: string, name: string): Promise<unknown>;
+  movePinboard(
+    id: string,
+    beforeId?: string,
+    afterId?: string,
+  ): Promise<unknown>;
+  assignItemsToPinboard(
+    itemIds: readonly string[],
+    pinboardId: string | undefined,
+  ): Promise<unknown[]>;
+  recognizeItem(itemId: string): Promise<string>;
 }>;
 
 const host = (window as Window & { ztools?: ZToolsHost }).ztools;
@@ -74,11 +92,21 @@ if (host === undefined) {
 const ztools: ZToolsHost = host;
 const isShelfWindow =
   new URLSearchParams(window.location.search).get("shelf") === "1";
-const store = new ZToolsCanonicalClipboardStore(ztools.db.promises);
+const store = new ZToolsCanonicalClipboardStore(ztools.db.promises, {
+  deviceId: ztools.getNativeId(),
+});
 const privacyStore = new ZToolsPrivacySettingsStore(ztools.db.promises);
+const pinboardStore = new ZToolsPinboardStore(ztools.db.promises, {
+  deviceId: ztools.getNativeId(),
+});
 const shelfWindows = new ShelfWindowManager(ztools);
+const ocrClient = createOcrClient({
+  helperPath: path.join(__dirname, "pasteboard-vision"),
+});
 let synchronization = Promise.resolve();
 let shelfRefreshTimer: number | undefined;
+let lastRetentionRun = 0;
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -122,6 +150,31 @@ function reportSynchronizationError(error: unknown): void {
   );
 }
 
+async function runRetentionIfDue(): Promise<void> {
+  const now = Date.now();
+  if (now - lastRetentionRun < RETENTION_INTERVAL_MS) {
+    return;
+  }
+  try {
+    const result = await executeRetentionPrune(store, {
+      days: 90,
+      maxBlobBytes: 1_073_741_824,
+      now,
+    });
+    window.dispatchEvent(
+      new CustomEvent("pasteboard-pro:retention-completed", { detail: result }),
+    );
+    lastRetentionRun = now;
+  } catch (error) {
+    lastRetentionRun = now - RETENTION_INTERVAL_MS + 5 * 60 * 1_000;
+    window.dispatchEvent(
+      new CustomEvent("pasteboard-pro:retention-error", {
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
 function scheduleHistoryMirror(): void {
   synchronization = synchronization
     .then(async () => {
@@ -139,6 +192,7 @@ function scheduleHistoryMirror(): void {
       window.dispatchEvent(
         new CustomEvent("pasteboard-pro:history-mirrored", { detail: result }),
       );
+      await runRetentionIfDue();
     })
     .catch(reportSynchronizationError);
 }
@@ -204,6 +258,33 @@ const bridge: PasteboardProBridge = {
       { type: "host", hostItemId: record.origin.hostItemId },
       ztools.clipboard,
     );
+  },
+  listPinboards: () => pinboardStore.list(),
+  createPinboard: (name, color) => pinboardStore.create(name, color),
+  renamePinboard: (id, name) => pinboardStore.rename(id, name),
+  movePinboard: (id, beforeId, afterId) =>
+    pinboardStore.moveBetween(id, beforeId, afterId),
+  async assignItemsToPinboard(itemIds, pinboardId) {
+    if (
+      pinboardId !== undefined &&
+      !(await pinboardStore.list()).some((pinboard) => pinboard.id === pinboardId)
+    ) {
+      throw new RangeError("Pinboard does not exist");
+    }
+    return store.assignToPinboard(itemIds, pinboardId);
+  },
+  async recognizeItem(itemId) {
+    if (process.platform !== "darwin") {
+      throw new Error("本地 Vision OCR 仅支持 macOS");
+    }
+    const record = await store.findRecordByItemId(itemId);
+    const imagePath = record?.origin.imagePath;
+    if (record === undefined || imagePath === undefined) {
+      throw new RangeError("该记录没有可识别的本地图片");
+    }
+    const text = await ocrClient.recognize(imagePath);
+    await store.updateOcrText(itemId, text);
+    return text;
   },
 };
 

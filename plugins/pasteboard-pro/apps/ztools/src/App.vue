@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { historyFixture, pinboardFixture } from "@pasteboard-pro/contract-fixtures";
-import type { Pinboard } from "@pasteboard-pro/core";
+import { PinboardSchema, type Pinboard } from "@pasteboard-pro/core";
 import type { DockEdge } from "@pasteboard-pro/design-tokens";
 
 import Shelf from "./components/Shelf.vue";
@@ -119,6 +119,51 @@ async function loadHistory(): Promise<void> {
   }
 }
 
+async function loadPinboards(): Promise<void> {
+  const values = await window.pasteboardPro?.listPinboards();
+  if (values !== undefined) {
+    pinboards.value = values.map((value) => PinboardSchema.parse(value));
+  }
+}
+
+async function createPinboard(name: string): Promise<void> {
+  await window.pasteboardPro?.createPinboard(name, "#6F61EA");
+  await loadPinboards();
+  status.value = `已创建 Pinboard：${name}`;
+}
+
+async function renamePinboard(id: string, name: string): Promise<void> {
+  await window.pasteboardPro?.renamePinboard(id, name);
+  await loadPinboards();
+  status.value = `已重命名 Pinboard：${name}`;
+}
+
+async function assignPinboard(
+  pinboardId: string | undefined,
+  draggedItemId: string,
+): Promise<void> {
+  const itemIds = state.selection.selected.includes(draggedItemId)
+    ? state.selection.selected
+    : [draggedItemId];
+  await window.pasteboardPro?.assignItemsToPinboard(itemIds, pinboardId);
+  await loadHistory();
+  status.value =
+    pinboardId === undefined
+      ? `已将 ${itemIds.length} 项移出 Pinboard`
+      : `已将 ${itemIds.length} 项加入 Pinboard`;
+}
+
+async function recognizeItem(itemId: string): Promise<void> {
+  status.value = "正在识别图片文字…";
+  try {
+    const text = await window.pasteboardPro?.recognizeItem(itemId);
+    await loadHistory();
+    status.value = text ? "OCR 识别完成" : "未识别到文字";
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : "OCR 识别失败";
+  }
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("pasteboard-pro:history-mirrored", onMirrored);
@@ -126,6 +171,7 @@ onMounted(async () => {
   const settings = await window.pasteboardPro?.getPrivacySettings();
   paused.value = settings?.pause.paused ?? false;
   await loadHistory();
+  await loadPinboards();
 });
 
 onBeforeUnmount(() => {
@@ -153,8 +199,12 @@ onBeforeUnmount(() => {
       @select="selectItem"
       @paste="pasteItem"
       @preview="previewItemId = $event"
+      @ocr="recognizeItem"
       @close-preview="previewItemId = undefined"
       @select-pinboard="activePinboardId = $event"
+      @create-pinboard="createPinboard"
+      @rename-pinboard="renamePinboard"
+      @assign-pinboard="assignPinboard"
       @toggle-pause="togglePause"
       @toggle-compact="state.setDensity(state.density === 'compact' ? 'expanded' : 'compact')"
       @toggle-stack-direction="state.dispatchPasteStack({ type: 'set-direction', direction: state.pasteStack.direction === 'forward' ? 'reverse' : 'forward' })"

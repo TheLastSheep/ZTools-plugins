@@ -19,7 +19,8 @@ export type Tombstone = {
 };
 
 const MINIMUM_CLOCK: HybridClock = {
-  wallMs: Number.MIN_SAFE_INTEGER,
+  // Internal missing-field sentinel; it is never serialized or schema-validated.
+  wallMs: Number.NEGATIVE_INFINITY,
   counter: 0,
   deviceId: "",
 };

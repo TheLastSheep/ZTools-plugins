@@ -308,6 +308,16 @@ describe("mergeEntity tombstones", () => {
     expect(mergeEntity(live, deleted)).toEqual(live);
   });
 
+  it("does not let the missing-clock sentinel hide a valid lower live clock", () => {
+    const wallMs = Number.MIN_SAFE_INTEGER - 1;
+    const live = pasteItem({
+      fieldClocks: { title: clock(wallMs, 0, "a") },
+    });
+    const deleted = tombstone({ clock: clock(wallMs, 0, "z") });
+
+    expect(mergeEntity(live, deleted)).toHaveProperty("deleted", true);
+  });
+
   it("rejects id and entity-type mismatches", () => {
     expect(() =>
       mergeEntity(pasteItem(), tombstone({ id: "item-2" })),

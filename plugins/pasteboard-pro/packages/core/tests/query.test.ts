@@ -65,6 +65,17 @@ describe("parsePasteQuery", () => {
       pinboards: [],
     });
   });
+
+  it("keeps a quoted URL phrase containing a colon as text", () => {
+    expect(parsePasteQuery('"https://example.com/a b"')).toEqual({
+      text: ["https://example.com/a b"],
+      types: [],
+      apps: [],
+      devices: [],
+      dates: [],
+      pinboards: [],
+    });
+  });
 });
 
 describe("searchPasteItems", () => {
@@ -259,5 +270,23 @@ describe("searchPasteItems", () => {
         ({ id }) => id,
       ),
     ).toEqual(["all-terms"]);
+  });
+
+  it("searches a quoted URL phrase containing a colon", () => {
+    const items = [
+      makeItem("matching", {
+        payload: {
+          revision: "r-matching",
+          text: "Open https://example.com/a b for details",
+        },
+      }),
+      makeItem("unrelated", {
+        payload: { revision: "r-unrelated", text: "No matching URL here" },
+      }),
+    ];
+
+    expect(
+      searchPasteItems(items, '"https://example.com/a b"').map(({ id }) => id),
+    ).toEqual(["matching"]);
   });
 });

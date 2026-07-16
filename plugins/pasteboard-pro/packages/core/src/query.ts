@@ -39,6 +39,14 @@ export function parsePasteQuery(input: string): PasteQuery {
   };
 
   for (const token of tokenize(input)) {
+    if (token.length >= 2 && token.startsWith('"') && token.endsWith('"')) {
+      const text = stripWrappingQuotes(token).toLowerCase();
+      if (text.length > 0) {
+        query.text.push(text);
+      }
+      continue;
+    }
+
     const separatorIndex = token.indexOf(":");
     const key = separatorIndex >= 0 ? token.slice(0, separatorIndex) : "";
     const target = FILTER_ALIASES[key.toLowerCase()];

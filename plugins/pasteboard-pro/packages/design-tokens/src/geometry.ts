@@ -59,16 +59,16 @@ export function clampShelfBounds(
   rect: Rect,
   display: DisplayGeometry,
 ): Rect {
-  validateRect(rect);
-  validateRect(display.workArea);
+  validatedEdges(rect, "rect");
 
   const workArea = display.workArea;
+  const workAreaEdges = validatedEdges(workArea, "workArea");
   const width = Math.min(rect.width, workArea.width);
   const height = Math.min(rect.height, workArea.height);
 
   return {
-    x: clamp(rect.x, workArea.x, workArea.x + workArea.width - width),
-    y: clamp(rect.y, workArea.y, workArea.y + workArea.height - height),
+    x: clamp(rect.x, workArea.x, workAreaEdges.right - width),
+    y: clamp(rect.y, workArea.y, workAreaEdges.bottom - height),
     width,
     height,
   };
@@ -79,8 +79,8 @@ export function resolveDockEdge(
   display: DisplayGeometry,
   snapZone: number = pasteboardTokens.snapZone,
 ): DockEdge {
-  validateRect(rect);
-  validateRect(display.workArea);
+  const rectEdges = validatedEdges(rect, "rect");
+  const workAreaEdges = validatedEdges(display.workArea, "workArea");
   validateSnapZone(snapZone);
 
   const workArea = display.workArea;
@@ -90,16 +90,12 @@ export function resolveDockEdge(
   }[] = [
     {
       edge: "bottom",
-      gap: Math.abs(
-        rect.y + rect.height - (workArea.y + workArea.height),
-      ),
+      gap: Math.abs(rectEdges.bottom - workAreaEdges.bottom),
     },
     { edge: "left", gap: Math.abs(rect.x - workArea.x) },
     {
       edge: "right",
-      gap: Math.abs(
-        rect.x + rect.width - (workArea.x + workArea.width),
-      ),
+      gap: Math.abs(rectEdges.right - workAreaEdges.right),
     },
   ];
 
@@ -130,6 +126,22 @@ function validateRect(rect: Rect): void {
   ) {
     throw new RangeError("Rectangle values must be finite with non-negative size");
   }
+}
+
+function validatedEdges(
+  rect: Rect,
+  label: string,
+): { right: number; bottom: number } {
+  validateRect(rect);
+
+  const right = rect.x + rect.width;
+  const bottom = rect.y + rect.height;
+
+  if (!Number.isFinite(right) || !Number.isFinite(bottom)) {
+    throw new RangeError(`${label} endpoints must be finite`);
+  }
+
+  return { right, bottom };
 }
 
 function validateSnapZone(snapZone: number): void {

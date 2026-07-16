@@ -172,6 +172,48 @@ describe("geometry validation", () => {
   };
 
   it.each([
+    [
+      "right",
+      { x: Number.MAX_VALUE, y: 0, width: Number.MAX_VALUE, height: 1 },
+    ],
+    [
+      "bottom",
+      { x: 0, y: Number.MAX_VALUE, width: 1, height: Number.MAX_VALUE },
+    ],
+  ] as const)("rejects a rect whose %s endpoint overflows", (_edge, rect) => {
+    const originalRect = structuredClone(rect);
+    const originalDisplay = structuredClone(validDisplay);
+
+    expect(() => clampShelfBounds(rect, validDisplay)).toThrow(RangeError);
+    expect(() => resolveDockEdge(rect, validDisplay)).toThrow(RangeError);
+    expect(rect).toEqual(originalRect);
+    expect(validDisplay).toEqual(originalDisplay);
+  });
+
+  it.each([
+    [
+      "right",
+      { x: Number.MAX_VALUE, y: 0, width: Number.MAX_VALUE, height: 100 },
+    ],
+    [
+      "bottom",
+      { x: 0, y: Number.MAX_VALUE, width: 100, height: Number.MAX_VALUE },
+    ],
+  ] as const)(
+    "rejects a work area whose %s endpoint overflows",
+    (_edge, workArea) => {
+      const display = { workArea };
+      const originalRect = structuredClone(validRect);
+      const originalDisplay = structuredClone(display);
+
+      expect(() => clampShelfBounds(validRect, display)).toThrow(RangeError);
+      expect(() => resolveDockEdge(validRect, display)).toThrow(RangeError);
+      expect(validRect).toEqual(originalRect);
+      expect(display).toEqual(originalDisplay);
+    },
+  );
+
+  it.each([
     { ...validRect, width: -1 },
     { ...validRect, height: -1 },
     { ...validRect, x: Number.NaN },

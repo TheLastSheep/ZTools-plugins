@@ -18,6 +18,15 @@ importers:
         specifier: ^3.24.2
         version: 3.24.2
 
+  packages/contract-fixtures:
+    dependencies:
+      '@pasteboard-pro/core':
+        specifier: workspace:*
+        version: link:../core
+      '@pasteboard-pro/sync-protocol':
+        specifier: workspace:*
+        version: link:../sync-protocol
+
   packages/core:
     dependencies:
       zod:

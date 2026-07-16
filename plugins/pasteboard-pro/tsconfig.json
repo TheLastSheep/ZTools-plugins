@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/design-tokens" },
-    { "path": "./packages/sync-protocol" }
+    { "path": "./packages/sync-protocol" },
+    { "path": "./packages/contract-fixtures" }
   ]
 }

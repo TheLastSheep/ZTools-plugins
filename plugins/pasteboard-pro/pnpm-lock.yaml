@@ -24,6 +24,8 @@ importers:
         specifier: ^3.24.2
         version: 3.24.2
 
+  packages/design-tokens: {}
+
 packages:
 
   '@esbuild/android-arm64@0.19.3':

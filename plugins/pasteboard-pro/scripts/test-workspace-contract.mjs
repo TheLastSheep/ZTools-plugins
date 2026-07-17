@@ -38,7 +38,7 @@ assert.equal(
 );
 assert.equal(
   normalizedWorkspace,
-  "packages:\n  - packages/*\n  - apps/*\n",
+  "packages:\n  - packages/*\n  - apps/*\n\nallowBuilds:\n  esbuild: true\n",
 );
 assert.deepEqual(tsconfig.files, []);
 assert.equal(Array.isArray(tsconfig.references), true);

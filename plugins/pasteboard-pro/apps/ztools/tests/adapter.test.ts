@@ -279,5 +279,58 @@ describe("ZTools clipboard adapter", () => {
     await expect(store.findRecordByItemId("ztools:text-1")).resolves.toMatchObject({
       item: { ocrText: "recognized invoice" },
     });
+
+    const imageRecord = normalizeHostClipboardItem(hostItems[1], "ztools-device");
+    await store.put(imageRecord!);
+    const originalFingerprint = imageRecord!.item.contentFingerprint;
+    await store.updateOcrText(imageRecord!.item.id, "stale OCR");
+    await store.updateImagePayload(imageRecord!.item.id, {
+      blobId: "blob-rotated",
+      revision: "sha256:rotated",
+      imagePath: "/tmp/rotated.png",
+      blobBytes: 321,
+      mediaType: "image/png",
+    });
+    await expect(store.findRecordByItemId(imageRecord!.item.id)).resolves.toMatchObject({
+      item: {
+        contentFingerprint: originalFingerprint,
+        payload: {
+          blobId: "blob-rotated",
+          revision: "sha256:rotated",
+          mediaType: "image/png",
+        },
+      },
+      origin: {
+        host: "sync",
+        imagePath: "/tmp/rotated.png",
+        pluginBlobId: "blob-rotated",
+      },
+    });
+    await expect(store.findRecordByItemId(imageRecord!.item.id)).resolves.not.toHaveProperty(
+      "item.ocrText",
+    );
+
+    const created = await store.createTextItem("Draft body", "Draft title");
+    expect(created.item).toMatchObject({
+      kind: "text",
+      title: "Draft title",
+      payload: { text: "Draft body" },
+      sourceApp: { name: "PasteboardPro" },
+    });
+    const captureFingerprint = created.item.contentFingerprint;
+    const edited = await store.updateTextItem(
+      created.item.id,
+      "Edited body",
+      "Edited title",
+    );
+    expect(edited.item).toMatchObject({
+      title: "Edited title",
+      contentFingerprint: captureFingerprint,
+      payload: { text: "Edited body" },
+    });
+    expect(edited.item.payload.revision).not.toBe(created.item.payload.revision);
+    const renamed = await store.updateItemTitle(created.item.id, "Final title");
+    expect(renamed.item.title).toBe("Final title");
+    expect(renamed.item.payload.revision).toBe(edited.item.payload.revision);
   });
 });

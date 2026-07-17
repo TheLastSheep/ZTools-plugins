@@ -99,4 +99,31 @@ describe("ZTools Pinboard store", () => {
       /anchor/i,
     );
   });
+
+  it("updates color and replaces a deleted Pinboard with a sync tombstone", async () => {
+    let now = Date.parse("2026-07-17T00:00:00Z");
+    const db = database();
+    const store = new ZToolsPinboardStore(db, {
+      deviceId: "device-a",
+      idFactory: () => "board-1",
+      now: () => now++,
+    });
+    const board = await store.create("Board", "#111111");
+
+    await expect(store.updateColor(board.id, "#aabbcc")).resolves.toMatchObject({
+      color: "#AABBCC",
+    });
+    const tombstone = await store.delete(board.id);
+
+    expect(await store.list()).toEqual([]);
+    expect(tombstone).toMatchObject({
+      id: board.id,
+      entityType: "pinboard",
+      deleted: true,
+      sourceDeviceId: "device-a",
+    });
+    await expect(
+      db.get(`pasteboard-pro:tombstone:pinboard:${board.id}`),
+    ).resolves.toMatchObject({ tombstone });
+  });
 });

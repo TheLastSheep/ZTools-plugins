@@ -205,4 +205,10 @@ export class ShelfWindowManager {
     }
     this.current = undefined;
   }
+
+  setContentProtection(enabled: boolean): void {
+    if (this.current !== undefined && !this.current.isDestroyed()) {
+      this.current.setContentProtection(enabled);
+    }
+  }
 }

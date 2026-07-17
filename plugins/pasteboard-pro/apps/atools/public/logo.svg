@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="PasteboardPro">
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9b92ff"/>
+      <stop offset="0.52" stop-color="#6f61ea"/>
+      <stop offset="1" stop-color="#3930a7"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#surface)"/>
+  <rect x="54" y="58" width="148" height="162" rx="24" fill="#fff" fill-opacity=".9"/>
+  <rect x="91" y="38" width="74" height="42" rx="18" fill="#fff"/>
+  <rect x="82" y="105" width="92" height="12" rx="6" fill="#6157c9" opacity=".88"/>
+  <rect x="82" y="137" width="70" height="12" rx="6" fill="#6157c9" opacity=".58"/>
+  <rect x="82" y="169" width="82" height="12" rx="6" fill="#6157c9" opacity=".36"/>
+</svg>

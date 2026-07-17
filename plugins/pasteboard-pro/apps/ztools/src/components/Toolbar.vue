@@ -12,6 +12,9 @@ const emit = defineEmits<{
   togglePause: [];
   toggleCompact: [];
   openSyncSettings: [];
+  addStack: [];
+  openPrivacySettings: [];
+  createText: [];
 }>();
 </script>
 
@@ -23,6 +26,25 @@ const emit = defineEmits<{
     </div>
     <SearchBar :model-value="query" @update:model-value="emit('update:query', $event)" />
     <div class="toolbar__actions">
+      <button type="button" class="tool-button" title="新建文本（Command-N）" @click="emit('createText')"><span aria-hidden="true">＋</span>新建</button>
+      <button
+        type="button"
+        class="tool-button"
+        title="隐私与历史保留"
+        @click="emit('openPrivacySettings')"
+      >
+        <span aria-hidden="true">⚙</span>
+        设置
+      </button>
+      <button
+        type="button"
+        class="tool-button"
+        title="将选择加入 Paste Stack（Shift-Command-C）"
+        @click="emit('addStack')"
+      >
+        <span aria-hidden="true">≋</span>
+        Stack
+      </button>
       <button
         type="button"
         class="tool-button"

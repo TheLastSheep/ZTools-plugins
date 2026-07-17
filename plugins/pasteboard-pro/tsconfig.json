@@ -5,6 +5,7 @@
     { "path": "./packages/design-tokens" },
     { "path": "./packages/sync-protocol" },
     { "path": "./packages/contract-fixtures" },
+    { "path": "./apps/atools" },
     { "path": "./apps/ztools" }
   ]
 }

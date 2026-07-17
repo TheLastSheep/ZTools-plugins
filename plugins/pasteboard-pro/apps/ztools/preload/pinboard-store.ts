@@ -5,6 +5,7 @@ import {
   type HybridClock,
   type Pinboard,
 } from "@pasteboard-pro/core";
+import type { Tombstone } from "@pasteboard-pro/sync-protocol";
 
 import type { ZToolsDocumentDatabase } from "./clipboard-store";
 
@@ -15,6 +16,7 @@ export type PinboardStoreOptions = Readonly<{
 }>;
 
 const PINBOARD_PREFIX = "pasteboard-pro:pinboard:";
+const TOMBSTONE_PREFIX = "pasteboard-pro:tombstone:";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -137,6 +139,22 @@ export class ZToolsPinboardStore {
     return updated;
   }
 
+  async updateColor(id: string, color: string): Promise<Pinboard> {
+    const pinboard = await this.required(id);
+    const timestamp = this.timestamp();
+    const updated = PinboardSchema.parse({
+      ...pinboard,
+      color: normalizedColor(color),
+      updatedAt: new Date(timestamp).toISOString(),
+      fieldClocks: {
+        ...pinboard.fieldClocks,
+        color: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
+      },
+    });
+    await this.put(updated);
+    return updated;
+  }
+
   async moveBetween(
     id: string,
     beforeId?: string,
@@ -195,6 +213,44 @@ export class ZToolsPinboardStore {
     } catch (error) {
       if (!databaseStatus(error, 404)) throw error;
     }
+  }
+
+  async delete(id: string): Promise<Tombstone> {
+    await this.required(id);
+    const timestamp = this.timestamp();
+    const tombstone: Tombstone = {
+      id,
+      entityType: "pinboard",
+      deleted: true,
+      deletedAt: new Date(timestamp).toISOString(),
+      sourceDeviceId: this.deviceId,
+      clock: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
+    };
+    const tombstoneId = `${TOMBSTONE_PREFIX}pinboard:${id}`;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let current: unknown;
+      try {
+        current = await this.database.get(tombstoneId);
+      } catch (error) {
+        if (!databaseStatus(error, 404)) throw error;
+      }
+      try {
+        await this.database.put({
+          _id: tombstoneId,
+          ...(revision(current) === undefined ? {} : { _rev: revision(current) }),
+          type: "pasteboard-pro-tombstone",
+          tombstone: structuredClone(tombstone),
+        });
+        break;
+      } catch (error) {
+        if (!databaseStatus(error, 409) || attempt === 2) throw error;
+      }
+    }
+    if (this.database.remove === undefined) {
+      throw new TypeError("ZTools database does not expose remove");
+    }
+    await this.database.remove(await this.database.get(this.documentId(id)));
+    return tombstone;
   }
 
   private timestamp(): number {

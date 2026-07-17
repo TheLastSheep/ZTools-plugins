@@ -18,6 +18,8 @@ function stateDatabase(): ZToolsDocumentDatabase {
 const repository: SyncEntityRepository = {
   async listEntities() { return []; },
   async applyEntities() {},
+  async readBlob() { return undefined; },
+  async writeBlob() {},
 };
 
 describe("configured vault sync controller", () => {

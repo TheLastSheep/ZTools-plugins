@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { historyFixture } from "@pasteboard-pro/contract-fixtures";
@@ -46,6 +50,22 @@ function database(): ZToolsDocumentDatabase {
 }
 
 describe("ZTools sync entity repository", () => {
+  it("stores derived image bytes in the content-addressed blob directory", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "pasteboard-pro-derived-"));
+    try {
+      const repository = new ZToolsSyncEntityRepository(database(), "host-a", root);
+      const stored = await repository.storeLocalBlob(
+        new Uint8Array([1, 2, 3, 4]),
+        "image/png",
+      );
+      expect(stored.id).toMatch(/^blob-[0-9a-f]{64}$/u);
+      expect(stored.imagePath.startsWith(root)).toBe(true);
+      expect(await readFile(stored.imagePath)).toEqual(Buffer.from([1, 2, 3, 4]));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("turns local deletion into a tombstone and permits only a newer live edit to return", async () => {
     const db = database();
     const clipboard = new ZToolsCanonicalClipboardStore(db, {

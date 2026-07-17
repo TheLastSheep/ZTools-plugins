@@ -64,21 +64,37 @@ describe("Vue canonical state", () => {
     });
   });
 
-  it("maps Quick Paste 1-9 to visible items without consuming state", () => {
+  it("maps Command 1-9 and Shift-Command 1-9 to Quick Paste", () => {
     const state = createPasteboardState({ items: historyFixture });
 
     expect(
       state.handleKeyboard({
         key: "2",
-        metaKey: false,
+        metaKey: true,
         shiftKey: false,
         altKey: false,
       }),
-    ).toEqual({ type: "quick-paste", itemId: state.visibleItems[1]?.id });
+    ).toEqual({
+      type: "quick-paste",
+      itemId: state.visibleItems[1]?.id,
+      plainText: false,
+    });
+    expect(
+      state.handleKeyboard({
+        key: "2",
+        metaKey: true,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toEqual({
+      type: "quick-paste",
+      itemId: state.visibleItems[1]?.id,
+      plainText: true,
+    });
     expect(
       state.handleKeyboard({
         key: "9",
-        metaKey: false,
+        metaKey: true,
         shiftKey: false,
         altKey: false,
       }),
@@ -107,7 +123,15 @@ describe("Vue canonical state", () => {
         shiftKey: false,
         altKey: false,
       }),
-    ).toEqual({ type: "paste", itemIds: [secondId] });
+    ).toEqual({ type: "paste", itemIds: [secondId], plainText: false });
+    expect(
+      state.handleKeyboard({
+        key: "Enter",
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+      }),
+    ).toEqual({ type: "paste", itemIds: [secondId], plainText: true });
     expect(
       state.handleKeyboard({
         key: " ",

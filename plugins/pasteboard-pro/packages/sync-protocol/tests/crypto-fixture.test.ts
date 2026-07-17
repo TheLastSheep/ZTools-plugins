@@ -5,9 +5,12 @@ import { describe, expect, it } from "vitest";
 import {
   bytesToHex,
   decryptEnvelope,
+  decryptEnvelopeBytes,
   deriveVaultKey,
+  encryptBytes,
   encryptObjectForFixture,
   hexToBytes,
+  vaultBytesRevision,
 } from "../src/node-crypto";
 
 type Fixture = {
@@ -68,5 +71,20 @@ describe("PasteboardPro v1 crypto fixture", () => {
     await expect(
       decryptEnvelope(key, { ...envelope, ciphertext: bytes.toString("base64") }),
     ).rejects.toThrow();
+  });
+
+  it("round-trips opaque blob bytes without JSON conversion", async () => {
+    const key = new Uint8Array(32).fill(9);
+    const bytes = new Uint8Array([0, 255, 1, 2, 3, 0]);
+    const descriptor = {
+      version: 1 as const,
+      objectType: "blob" as const,
+      objectId: "blob-test",
+      revision: vaultBytesRevision(key, bytes),
+    };
+    const envelope = encryptBytes(key, descriptor, bytes);
+
+    await expect(decryptEnvelopeBytes(key, envelope)).resolves.toEqual(bytes);
+    await expect(decryptEnvelope(key, envelope)).rejects.toThrow();
   });
 });

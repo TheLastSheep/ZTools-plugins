@@ -57,13 +57,19 @@ jobs:
           plugins/pasteboard-pro/apps/ztools/native/vision-helper/build.sh
           codesign --force --sign - plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
           codesign --verify --strict plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          node plugins/pasteboard-pro/apps/ztools/scripts/attest-vision-helper.mjs \
+            plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision \
+            --signature=adhoc \
+            --output=plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision-attestation.json
 
       - name: Upload Vision helper
         if: steps.helper.outputs.required == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pasteboardpro-vision-pr-${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
-          path: plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          path: |
+            plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+            plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision-attestation.json
           if-no-files-found: error
           retention-days: 3
 
@@ -244,7 +250,58 @@ jobs:
 
       - name: Restore Vision helper executable bit
         if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
-        run: chmod +x plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+        run: |
+          chmod +x plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision
+          test -f plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision-attestation.json
+
+      - name: Verify PasteboardPro workspace
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        working-directory: plugins/pasteboard-pro
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm --filter @pasteboard-pro/atools typecheck
+          pnpm --filter @pasteboard-pro/ztools typecheck
+          pnpm typecheck:visual
+          pnpm test:contract
+          pnpm test:release-archive
+          pnpm test:visual-artifact
+          pnpm test:visual-contract
+          node apps/atools/scripts/verify-source.mjs
+          node apps/ztools/scripts/verify-package.mjs
+          pnpm test
+          pnpm benchmark:search
+
+      - name: Upload PasteboardPro performance report
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasteboardpro-performance-pr-${{ steps.pr.outputs.number }}
+          path: plugins/pasteboard-pro/artifacts/pasteboardpro/search-performance.json
+
+      - name: Install PasteboardPro visual test browser
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        working-directory: plugins/pasteboard-pro
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture PasteboardPro dual-host visual matrix
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        working-directory: plugins/pasteboard-pro
+        run: |
+          pnpm test:visual
+          pnpm verify:visual-artifact
+
+      - name: Upload PasteboardPro visual evidence
+        if: always() && contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasteboardpro-visual-pr-${{ steps.pr.outputs.number }}
+          path: |
+            plugins/pasteboard-pro/artifacts/pasteboardpro/visual-matrix
+            plugins/pasteboard-pro/artifacts/pasteboardpro/playwright-report.json
+            plugins/pasteboard-pro/artifacts/pasteboardpro/playwright-results
+          if-no-files-found: error
 
       - name: Install root dependencies
         if: steps.detect.outputs.has_changes == 'true'
@@ -254,6 +311,19 @@ jobs:
         if: steps.detect.outputs.has_changes == 'true'
         run: node scripts/build-plugins.js
 
+      - name: Verify final PasteboardPro release archive
+        if: contains(steps.detect.outputs.changed_plugins, 'pasteboard-pro')
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find release -maxdepth 1 -type f -name 'pasteboard-pro-*.zip' -print -quit)"
+          test -n "${archive}"
+          node plugins/pasteboard-pro/scripts/verify-release-archive.mjs \
+            "${archive}" \
+            --helper-attestation=plugins/pasteboard-pro/apps/ztools/native/vision-helper/dist/pasteboard-vision-attestation.json \
+            --require-helper-signature=adhoc \
+            --report=release/pasteboardpro-archive-verification.json
+
       - name: Upload plugin packages
         if: steps.detect.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
@@ -262,6 +332,7 @@ jobs:
           path: |
             release/*.zip
             release/build-info.json
+            release/pasteboardpro-archive-verification.json
             release/latest
           if-no-files-found: error
           retention-days: 14

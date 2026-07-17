@@ -27,6 +27,11 @@ export type CapturePauseState = Readonly<{
 export type PrivacySettings = Readonly<{
   pause: CapturePauseState;
   rules: ClipboardPrivacyRules;
+  retention: Readonly<{
+    days: number;
+    maxBlobBytes: number;
+  }>;
+  screenShareProtection: boolean;
 }>;
 
 export type RetentionItem = Readonly<{
@@ -95,6 +100,11 @@ export const defaultPrivacySettings: PrivacySettings = {
     blockLikelySecrets: true,
     contentRules: [],
   },
+  retention: {
+    days: 90,
+    maxBlobBytes: 1_073_741_824,
+  },
+  screenShareProtection: true,
 };
 
 function normalizedBundleId(value: string): string {
@@ -333,6 +343,22 @@ function parsedPrivacySettings(value: unknown): PrivacySettings | undefined {
     });
   }
 
+  const retention = isRecord(settings.retention) ? settings.retention : undefined;
+  const days = typeof retention?.days === "number" ? retention.days : undefined;
+  const maxBlobBytes =
+    typeof retention?.maxBlobBytes === "number"
+      ? retention.maxBlobBytes
+      : undefined;
+  if (
+    (days !== undefined && (!Number.isFinite(days) || !Number.isInteger(days) || days < 1)) ||
+    (maxBlobBytes !== undefined &&
+      (!Number.isSafeInteger(maxBlobBytes) || maxBlobBytes < 64 * 1_024 * 1_024)) ||
+    (settings.screenShareProtection !== undefined &&
+      typeof settings.screenShareProtection !== "boolean")
+  ) {
+    return undefined;
+  }
+
   return {
     pause: {
       paused: pause.paused,
@@ -343,6 +369,17 @@ function parsedPrivacySettings(value: unknown): PrivacySettings | undefined {
       blockLikelySecrets: rules.blockLikelySecrets,
       contentRules,
     },
+    retention: {
+      days: typeof days === "number" ? days : defaultPrivacySettings.retention.days,
+      maxBlobBytes:
+        typeof maxBlobBytes === "number"
+          ? maxBlobBytes
+          : defaultPrivacySettings.retention.maxBlobBytes,
+    },
+    screenShareProtection:
+      typeof settings.screenShareProtection === "boolean"
+        ? settings.screenShareProtection
+        : defaultPrivacySettings.screenShareProtection,
   };
 }
 
@@ -369,6 +406,20 @@ export class ZToolsPrivacySettingsStore {
     // become a startup-time failure.
     for (const rule of settings.rules.contentRules) {
       compileRule(rule);
+    }
+    if (
+      !Number.isInteger(settings.retention.days) ||
+      settings.retention.days < 1 ||
+      settings.retention.days > 3_650
+    ) {
+      throw new RangeError("Retention days must be between 1 and 3650");
+    }
+    if (
+      !Number.isSafeInteger(settings.retention.maxBlobBytes) ||
+      settings.retention.maxBlobBytes < 64 * 1_024 * 1_024 ||
+      settings.retention.maxBlobBytes > 100 * 1_024 * 1_024 * 1_024
+    ) {
+      throw new RangeError("Blob budget must be between 64 MiB and 100 GiB");
     }
 
     for (let attempt = 0; attempt < 3; attempt += 1) {

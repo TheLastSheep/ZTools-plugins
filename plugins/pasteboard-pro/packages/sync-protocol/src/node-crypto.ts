@@ -65,13 +65,27 @@ function encryptWithNonce(
   value: unknown,
   nonce: Uint8Array,
 ): VaultObjectEnvelope {
+  return encryptBytesWithNonce(
+    key,
+    descriptor,
+    new TextEncoder().encode(canonicalJson(value)),
+    nonce,
+  );
+}
+
+function encryptBytesWithNonce(
+  key: Uint8Array,
+  descriptor: VaultObjectDescriptor,
+  value: Uint8Array,
+  nonce: Uint8Array,
+): VaultObjectEnvelope {
   const nonceBuffer = assertNonce(nonce);
   const cipher = createCipheriv("aes-256-gcm", assertKey(key), nonceBuffer, {
     authTagLength: VAULT_CIPHER.tagLength,
   });
   cipher.setAAD(asBuffer(objectAad(descriptor)));
   const ciphertext = Buffer.concat([
-    cipher.update(canonicalJson(value), "utf8"),
+    cipher.update(asBuffer(value)),
     cipher.final(),
     cipher.getAuthTag(),
   ]);
@@ -91,6 +105,19 @@ export function encryptObject(
   return encryptWithNonce(key, descriptor, value, randomBytes(VAULT_CIPHER.nonceLength));
 }
 
+export function encryptBytes(
+  key: Uint8Array,
+  descriptor: VaultObjectDescriptor,
+  value: Uint8Array,
+): VaultObjectEnvelope {
+  return encryptBytesWithNonce(
+    key,
+    descriptor,
+    value,
+    randomBytes(VAULT_CIPHER.nonceLength),
+  );
+}
+
 export function encryptObjectForFixture(
   key: Uint8Array,
   descriptor: VaultObjectDescriptor,
@@ -104,6 +131,14 @@ export async function decryptEnvelope(
   key: Uint8Array,
   envelopeValue: unknown,
 ): Promise<unknown> {
+  const plaintext = await decryptEnvelopeBytes(key, envelopeValue);
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plaintext)) as unknown;
+}
+
+export async function decryptEnvelopeBytes(
+  key: Uint8Array,
+  envelopeValue: unknown,
+): Promise<Uint8Array> {
   const envelope = parseVaultEnvelope(envelopeValue);
   const nonce = Buffer.from(envelope.nonce, "base64");
   if (nonce.byteLength !== VAULT_CIPHER.nonceLength) {
@@ -123,7 +158,7 @@ export async function decryptEnvelope(
     decipher.update(encrypted.subarray(0, tagOffset)),
     decipher.final(),
   ]);
-  return JSON.parse(plaintext.toString("utf8")) as unknown;
+  return new Uint8Array(plaintext);
 }
 
 export function bytesToHex(value: Uint8Array): string {
@@ -138,7 +173,11 @@ export function hexToBytes(value: string): Uint8Array {
 }
 
 export function vaultRevision(key: Uint8Array, value: unknown): string {
+  return vaultBytesRevision(key, new TextEncoder().encode(canonicalJson(value)));
+}
+
+export function vaultBytesRevision(key: Uint8Array, value: Uint8Array): string {
   return `r-${createHmac("sha256", assertKey(key))
-    .update(canonicalJson(value), "utf8")
+    .update(asBuffer(value))
     .digest("hex")}`;
 }

@@ -12,12 +12,17 @@ import {
 } from "../preload/sync";
 import {
   syncZToolsVault,
+  type SyncBlob,
   type SyncEntity,
   type SyncEntityRepository,
 } from "../preload/sync-runtime";
 
 class MemoryRepository implements SyncEntityRepository {
-  constructor(private entities: SyncEntity[]) {}
+  private readonly blobs = new Map<string, SyncBlob>();
+
+  constructor(private entities: SyncEntity[], blobs: readonly SyncBlob[] = []) {
+    for (const blob of blobs) this.blobs.set(blob.id, structuredClone(blob));
+  }
 
   async listEntities(): Promise<SyncEntity[]> {
     return structuredClone(this.entities);
@@ -25,6 +30,15 @@ class MemoryRepository implements SyncEntityRepository {
 
   async applyEntities(entities: readonly SyncEntity[]): Promise<void> {
     this.entities = structuredClone([...entities]);
+  }
+
+  async readBlob(blobId: string): Promise<SyncBlob | undefined> {
+    const blob = this.blobs.get(blobId);
+    return blob === undefined ? undefined : structuredClone(blob);
+  }
+
+  async writeBlob(blob: SyncBlob): Promise<void> {
+    this.blobs.set(blob.id, structuredClone(blob));
   }
 
   item(): PasteItem {
@@ -35,6 +49,11 @@ class MemoryRepository implements SyncEntityRepository {
 
   replaceItem(item: PasteItem): void {
     this.entities = [structuredClone(item)];
+  }
+
+  blob(blobId: string): SyncBlob | undefined {
+    const blob = this.blobs.get(blobId);
+    return blob === undefined ? undefined : structuredClone(blob);
   }
 }
 
@@ -147,5 +166,35 @@ describe("ZTools encrypted vault runtime", () => {
       }),
     ).resolves.toMatchObject({ state: "wrong_password" });
     expect(putCount).toBe(writesBeforeWrongKey);
+  });
+
+  it("round-trips encrypted blob bytes across hosts", async () => {
+    const transport = webDavMemoryTransport();
+    const client = () =>
+      createWebDavVaultClient({
+        baseUrl: "https://dav.example.com/PasteboardPro/v1/",
+        credentials: async () => ({ username: "alice", password: "dav-secret" }),
+        queue: new MemorySyncQueue(),
+        transport,
+      });
+    const key = new Uint8Array(32).fill(3);
+    const item = PasteItemSchema.parse(historyFixture[1]);
+    const blob: SyncBlob = {
+      id: item.payload.blobId!,
+      mediaType: item.payload.mediaType!,
+      bytes: new Uint8Array([0, 255, 4, 8, 15, 16, 23, 42]),
+    };
+    const hostA = new MemoryRepository([item], [blob]);
+    const hostB = new MemoryRepository([]);
+
+    await expect(
+      syncZToolsVault({ client: client(), key, repository: hostA }),
+    ).resolves.toMatchObject({ state: "success" });
+    await expect(
+      syncZToolsVault({ client: client(), key, repository: hostB }),
+    ).resolves.toMatchObject({ state: "success" });
+
+    expect(hostB.blob(blob.id)).toEqual(blob);
+    expect(hostB.item()).toEqual(item);
   });
 });

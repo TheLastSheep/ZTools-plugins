@@ -127,7 +127,7 @@ export class VaultSyncError extends Error {
   }
 }
 
-const MAX_HTTP_RESPONSE_BYTES = 101 * 1_024 * 1_024;
+const MAX_HTTP_RESPONSE_BYTES = 141 * 1_024 * 1_024;
 const HTTP_TIMEOUT_MS = 30_000;
 
 async function defaultTransport(request: WebDavRequest): Promise<WebDavResponse> {
@@ -141,11 +141,11 @@ async function defaultTransport(request: WebDavRequest): Promise<WebDavResponse>
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_HTTP_RESPONSE_BYTES) {
     await response.body?.cancel();
-    throw new RangeError("WebDAV response exceeds the 101 MiB safety limit");
+    throw new RangeError("WebDAV response exceeds the 141 MiB safety limit");
   }
   const body = new Uint8Array(await response.arrayBuffer());
   if (body.byteLength > MAX_HTTP_RESPONSE_BYTES) {
-    throw new RangeError("WebDAV response exceeds the 101 MiB safety limit");
+    throw new RangeError("WebDAV response exceeds the 141 MiB safety limit");
   }
   return {
     status: response.status,

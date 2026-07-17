@@ -1,0 +1,24 @@
+{
+  "name": "pasteboard-pro-atools",
+  "title": "PasteboardPro",
+  "description": "Paste 风格的本地剪贴板历史、Pinboards、预览与 Paste Stack",
+  "author": "TheLastSheep",
+  "version": "1.0.0",
+  "main": "index.html",
+  "logo": "logo.svg",
+  "permissions": [
+    "pasteboard.read",
+    "pasteboard.write",
+    "pasteboard.sync",
+    "pasteboard.paste",
+    "clipboard.write"
+  ],
+  "features": [
+    {
+      "code": "pasteboard-pro-atools",
+      "explain": "打开 PasteboardPro 剪贴板时间线",
+      "icon": "logo.svg",
+      "cmds": ["剪贴板", "PasteboardPro", "paste", "clipboard"]
+    }
+  ]
+}

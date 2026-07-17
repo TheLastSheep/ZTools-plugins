@@ -25,8 +25,8 @@ export type PasteboardKeyboardEvent = Readonly<{
 export type ShelfDensity = "expanded" | "compact";
 
 export type PasteboardKeyboardEffect =
-  | Readonly<{ type: "quick-paste"; itemId: string }>
-  | Readonly<{ type: "paste"; itemIds: string[] }>
+  | Readonly<{ type: "quick-paste"; itemId: string; plainText: boolean }>
+  | Readonly<{ type: "paste"; itemIds: string[]; plainText: boolean }>
   | Readonly<{ type: "preview"; itemId: string }>;
 
 export type PasteboardStateInput = Readonly<{
@@ -243,12 +243,14 @@ export class PasteboardState {
       return null;
     }
 
-    if (!event.metaKey && !event.shiftKey && !event.altKey) {
-      if (/^[1-9]$/u.test(event.key)) {
-        const itemId = orderedIds[Number(event.key) - 1];
-        return itemId === undefined ? null : { type: "quick-paste", itemId };
-      }
+    if (event.metaKey && !event.altKey && /^[1-9]$/u.test(event.key)) {
+      const itemId = orderedIds[Number(event.key) - 1];
+      return itemId === undefined
+        ? null
+        : { type: "quick-paste", itemId, plainText: event.shiftKey };
+    }
 
+    if (!event.metaKey && !event.shiftKey && !event.altKey) {
       if (
         event.key === "ArrowLeft" ||
         event.key === "ArrowRight" ||
@@ -266,7 +268,9 @@ export class PasteboardState {
         const selected = orderedIds.filter((id) =>
           this.selection.selected.includes(id),
         );
-        return selected.length === 0 ? null : { type: "paste", itemIds: selected };
+        return selected.length === 0
+          ? null
+          : { type: "paste", itemIds: selected, plainText: false };
       }
 
       if (event.key === " ") {
@@ -275,6 +279,15 @@ export class PasteboardState {
           orderedIds.find((id) => this.selection.selected.includes(id));
         return itemId === undefined ? null : { type: "preview", itemId };
       }
+    }
+
+    if (!event.metaKey && event.shiftKey && !event.altKey && event.key === "Enter") {
+      const selected = orderedIds.filter((id) =>
+        this.selection.selected.includes(id),
+      );
+      return selected.length === 0
+        ? null
+        : { type: "paste", itemIds: selected, plainText: true };
     }
 
     return null;

@@ -25,6 +25,7 @@ export type CanonicalClipboardOrigin =
   | Readonly<{
       host: "sync";
       remoteAvailable: boolean;
+      imagePath?: string;
       blobBytes?: number;
       pluginBlobId?: string;
     }>;
@@ -157,6 +158,9 @@ function storedRecord(value: unknown): CanonicalClipboardRecord | undefined {
       origin: {
         host: "sync",
         remoteAvailable: origin.remoteAvailable,
+        ...(typeof origin.imagePath === "string"
+          ? { imagePath: origin.imagePath }
+          : {}),
         ...(Number.isSafeInteger(origin.blobBytes) && Number(origin.blobBytes) >= 0
           ? { blobBytes: Number(origin.blobBytes) }
           : {}),
@@ -267,6 +271,29 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     });
   }
 
+  async attachSyncedBlob(
+    itemId: string,
+    blobId: string,
+    imagePath: string,
+    blobBytes: number,
+  ): Promise<void> {
+    const current = await this.findRecordByItemId(itemId);
+    if (current === undefined || current.item.payload.blobId !== blobId) return;
+    await this.put({
+      item: current.item,
+      origin:
+        current.origin.host === "ztools"
+          ? current.origin
+          : {
+              host: "sync",
+              remoteAvailable: true,
+              imagePath,
+              blobBytes,
+              pluginBlobId: blobId,
+            },
+    });
+  }
+
   async removeSyncedItem(itemId: string): Promise<void> {
     if (this.database.remove === undefined) {
       throw new TypeError("ZTools database does not expose remove");
@@ -348,6 +375,122 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     itemId: string,
   ): Promise<CanonicalClipboardRecord | undefined> {
     return (await this.listRecords()).find((record) => record.item.id === itemId);
+  }
+
+  async createTextItem(
+    text: string,
+    title?: string,
+  ): Promise<CanonicalClipboardRecord> {
+    const normalizedText = text.trim();
+    if (normalizedText.length === 0) {
+      throw new RangeError("Text item content cannot be empty");
+    }
+    if (normalizedText.length > 10 * 1_024 * 1_024) {
+      throw new RangeError("Text item content cannot exceed 10 MiB");
+    }
+    const timestamp = this.validTimestamp();
+    const id = `ztools-created:${this.deviceId}:${crypto.randomUUID()}`;
+    const normalizedTitle = title?.trim() || textTitle(normalizedText);
+    const payloadRevision = fingerprint({ type: "created-text-payload", text: normalizedText });
+    const contentFingerprint = fingerprint({ type: "created-text-item", id });
+    const clock = (counter: number): HybridClock => ({
+      wallMs: timestamp,
+      counter,
+      deviceId: this.deviceId,
+    });
+    const item = PasteItemSchema.parse({
+      id,
+      kind: "text",
+      ...(normalizedTitle === undefined ? {} : { title: normalizedTitle }),
+      sourceApp: { name: "PasteboardPro" },
+      sourceDeviceId: this.deviceId,
+      copiedAt: new Date(timestamp).toISOString(),
+      updatedAt: new Date(timestamp).toISOString(),
+      contentFingerprint,
+      payload: { revision: payloadRevision, text: normalizedText },
+      pinned: false,
+      fieldClocks: {
+        payload: clock(0),
+        ...(normalizedTitle === undefined ? {} : { title: clock(1) }),
+        pinned: clock(2),
+      },
+    });
+    const record: CanonicalClipboardRecord = {
+      item,
+      origin: { host: "sync", remoteAvailable: true },
+    };
+    await this.put(record);
+    return record;
+  }
+
+  async updateTextItem(
+    itemId: string,
+    text: string,
+    title?: string,
+  ): Promise<CanonicalClipboardRecord> {
+    const record = await this.findRecordByItemId(itemId);
+    if (record === undefined) {
+      throw new RangeError("Clipboard item does not exist");
+    }
+    if (!new Set(["text", "rich_text", "html", "url", "color"]).has(record.item.kind)) {
+      throw new TypeError("Clipboard item does not support text editing");
+    }
+    const normalizedText = text.trim();
+    if (normalizedText.length === 0 || normalizedText.length > 10 * 1_024 * 1_024) {
+      throw new RangeError("Edited text must contain 1 byte to 10 MiB");
+    }
+    const timestamp = this.validTimestamp();
+    const normalizedTitle = title?.trim() || textTitle(normalizedText);
+    const { title: _oldTitle, ocrText: _oldOcrText, ...base } = record.item;
+    const item = PasteItemSchema.parse({
+      ...base,
+      kind: "text",
+      ...(normalizedTitle === undefined ? {} : { title: normalizedTitle }),
+      payload: {
+        revision: fingerprint({ type: "edited-text-payload", itemId, text: normalizedText, timestamp }),
+        text: normalizedText,
+      },
+      updatedAt: new Date(timestamp).toISOString(),
+      fieldClocks: {
+        ...record.item.fieldClocks,
+        payload: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
+        title: { wallMs: timestamp, counter: 1, deviceId: this.deviceId },
+        ocrText: { wallMs: timestamp, counter: 2, deviceId: this.deviceId },
+      },
+    });
+    const updated: CanonicalClipboardRecord = {
+      item,
+      origin: { host: "sync", remoteAvailable: true },
+    };
+    await this.put(updated);
+    return updated;
+  }
+
+  async updateItemTitle(
+    itemId: string,
+    title: string,
+  ): Promise<CanonicalClipboardRecord> {
+    const record = await this.findRecordByItemId(itemId);
+    if (record === undefined) {
+      throw new RangeError("Clipboard item does not exist");
+    }
+    const normalizedTitle = title.trim();
+    if (normalizedTitle.length === 0 || [...normalizedTitle].length > 160) {
+      throw new RangeError("Item title must contain 1 to 160 characters");
+    }
+    const timestamp = this.validTimestamp();
+    const item = PasteItemSchema.parse({
+      ...record.item,
+      title: normalizedTitle,
+      updatedAt: new Date(timestamp).toISOString(),
+      fieldClocks: {
+        ...record.item.fieldClocks,
+        title: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
+      },
+    });
+    const updated = { item, origin: record.origin };
+    await this.put(updated);
+    return updated;
   }
 
   async deleteRecords(itemIds: readonly string[]): Promise<DeleteRecordsResult> {
@@ -496,6 +639,54 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
       },
     });
     const updated = { item, origin: record.origin };
+    await this.put(updated);
+    return updated;
+  }
+
+  async updateImagePayload(
+    itemId: string,
+    input: Readonly<{
+      blobId: string;
+      revision: string;
+      imagePath: string;
+      blobBytes: number;
+      mediaType: "image/png";
+    }>,
+  ): Promise<CanonicalClipboardRecord> {
+    const record = await this.findRecordByItemId(itemId);
+    if (record === undefined) {
+      throw new RangeError("Clipboard item does not exist");
+    }
+    if (record.item.kind !== "image") {
+      throw new TypeError("Clipboard item is not an image");
+    }
+    const timestamp = this.validTimestamp();
+    const { ocrText: _oldOcrText, ...base } = record.item;
+    const item = PasteItemSchema.parse({
+      ...base,
+      payload: {
+        ...record.item.payload,
+        revision: input.revision,
+        blobId: input.blobId,
+        mediaType: input.mediaType,
+      },
+      updatedAt: new Date(timestamp).toISOString(),
+      fieldClocks: {
+        ...record.item.fieldClocks,
+        payload: { wallMs: timestamp, counter: 0, deviceId: this.deviceId },
+        ocrText: { wallMs: timestamp, counter: 1, deviceId: this.deviceId },
+      },
+    });
+    const updated: CanonicalClipboardRecord = {
+      item,
+      origin: {
+        host: "sync",
+        remoteAvailable: true,
+        imagePath: input.imagePath,
+        blobBytes: input.blobBytes,
+        pluginBlobId: input.blobId,
+      },
+    };
     await this.put(updated);
     return updated;
   }

@@ -78,35 +78,47 @@ export function searchPasteItems(
   options: SearchPasteOptions = {},
 ): PasteItem[] {
   const query = parsePasteQuery(input);
+  const matches: Array<{
+    item: PasteItem;
+    index: number;
+    score: number;
+  }> = [];
 
-  return items
-    .map((item, index) => ({
-      item,
-      index,
-      score: scoreItem(item, query.text),
-    }))
-    .filter(
-      ({ item, score }) =>
-        score !== null &&
-        matchesAny(query.types, (value) =>
-          equalsIgnoreCase(item.kind, value),
-        ) &&
-        matchesAny(query.apps, (value) =>
-          [item.sourceApp?.name, item.sourceApp?.bundleId].some((field) =>
-            includesIgnoreCase(field, value),
-          ),
-        ) &&
-        matchesAny(query.devices, (value) =>
-          includesIgnoreCase(item.sourceDeviceId, value),
-        ) &&
-        matchesAny(query.pinboards, (value) =>
-          equalsIgnoreCase(item.pinboardId, value),
-        ) &&
-        matchesDate(item.copiedAt, query.dates, options),
-    )
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (item === undefined) {
+      continue;
+    }
+
+    const score = scoreItem(item, query.text);
+    if (
+      score === null ||
+      !matchesAny(query.types, (value) =>
+        equalsIgnoreCase(item.kind, value),
+      ) ||
+      !matchesAny(query.apps, (value) =>
+        [item.sourceApp?.name, item.sourceApp?.bundleId].some((field) =>
+          includesIgnoreCase(field, value),
+        ),
+      ) ||
+      !matchesAny(query.devices, (value) =>
+        includesIgnoreCase(item.sourceDeviceId, value),
+      ) ||
+      !matchesAny(query.pinboards, (value) =>
+        equalsIgnoreCase(item.pinboardId, value),
+      ) ||
+      !matchesDate(item.copiedAt, query.dates, options)
+    ) {
+      continue;
+    }
+
+    matches.push({ item, index, score });
+  }
+
+  return matches
     .sort(
       (left, right) =>
-        (right.score ?? 0) - (left.score ?? 0) ||
+        right.score - left.score ||
         Date.parse(right.item.copiedAt) - Date.parse(left.item.copiedAt) ||
         left.index - right.index,
     )

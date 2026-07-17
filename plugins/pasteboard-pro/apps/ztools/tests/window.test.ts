@@ -115,6 +115,8 @@ describe("ZTools shelf lifecycle", () => {
     expect(calls).toContain("protect:true");
     expect(calls).toContain("hide:false");
     expect(calls.slice(-2)).toEqual(["show", "focus"]);
+    manager.setContentProtection(false);
+    expect(calls.at(-1)).toBe("protect:false");
   });
 
   it("recreates a destroyed shelf and can close the active handle", () => {

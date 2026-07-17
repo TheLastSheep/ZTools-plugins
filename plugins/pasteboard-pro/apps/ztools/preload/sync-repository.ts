@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { mergeEntity, type Tombstone } from "@pasteboard-pro/sync-protocol";
 
 import {
@@ -5,9 +10,24 @@ import {
   type ZToolsDocumentDatabase,
 } from "./clipboard-store";
 import { ZToolsPinboardStore } from "./pinboard-store";
-import type { SyncEntity, SyncEntityRepository } from "./sync-runtime";
+import type { SyncBlob, SyncEntity, SyncEntityRepository } from "./sync-runtime";
 
 const TOMBSTONE_PREFIX = "pasteboard-pro:tombstone:";
+const MAX_BLOB_BYTES = 100 * 1_024 * 1_024;
+
+function blobExtension(mediaType: string): string {
+  return (
+    {
+      "image/png": "png",
+      "image/jpeg": "jpg",
+      "image/webp": "webp",
+      "image/tiff": "tiff",
+      "application/pdf": "pdf",
+      "text/rtf": "rtf",
+      "text/rtfd": "rtfd",
+    } as Readonly<Record<string, string>>
+  )[mediaType] ?? "bin";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -54,6 +74,12 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   constructor(
     private readonly database: ZToolsDocumentDatabase,
     deviceId: string,
+    private readonly blobRoot = path.join(
+      os.homedir(),
+      ".pasteboard-pro",
+      "ztools",
+      "blobs",
+    ),
   ) {
     this.clipboard = new ZToolsCanonicalClipboardStore(database, { deviceId });
     this.pinboards = new ZToolsPinboardStore(database, { deviceId });
@@ -150,5 +176,90 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
         await this.pinboards.putSynced(entity);
       }
     }
+  }
+
+  async readBlob(blobId: string): Promise<SyncBlob | undefined> {
+    const record = (await this.clipboard.listRecords()).find(
+      (candidate) => candidate.item.payload.blobId === blobId,
+    );
+    if (record === undefined) return undefined;
+    const imagePath = record.origin.imagePath;
+    if (imagePath === undefined) return undefined;
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(imagePath);
+    } catch (error) {
+      if (databaseStatus(error, 404) || (isRecord(error) && error.code === "ENOENT")) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (bytes.byteLength > MAX_BLOB_BYTES) {
+      throw new RangeError(`Blob ${blobId} exceeds 100 MiB`);
+    }
+    return {
+      id: blobId,
+      mediaType: record.item.payload.mediaType ?? "application/octet-stream",
+      bytes: new Uint8Array(bytes),
+    };
+  }
+
+  async storeLocalBlob(
+    bytes: Uint8Array,
+    mediaType: string,
+  ): Promise<Readonly<{ id: string; imagePath: string; blobBytes: number }>> {
+    if (bytes.byteLength > MAX_BLOB_BYTES) {
+      throw new RangeError("Blob exceeds 100 MiB");
+    }
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const imagePath = await this.writeBlobBytes(bytes, mediaType, digest);
+    return {
+      id: `blob-${digest}`,
+      imagePath,
+      blobBytes: bytes.byteLength,
+    };
+  }
+
+  async writeBlob(blob: SyncBlob): Promise<void> {
+    if (blob.bytes.byteLength > MAX_BLOB_BYTES) {
+      throw new RangeError(`Blob ${blob.id} exceeds 100 MiB`);
+    }
+    const digest = createHash("sha256").update(blob.bytes).digest("hex");
+    const destination = await this.writeBlobBytes(blob.bytes, blob.mediaType, digest);
+    const records = await this.clipboard.listRecords();
+    await Promise.all(
+      records
+        .filter((record) => record.item.payload.blobId === blob.id)
+        .map((record) =>
+          this.clipboard.attachSyncedBlob(
+            record.item.id,
+            blob.id,
+            destination,
+            blob.bytes.byteLength,
+          ),
+        ),
+    );
+  }
+
+  private async writeBlobBytes(
+    bytes: Uint8Array,
+    mediaType: string,
+    digest: string,
+  ): Promise<string> {
+    const directory = path.join(this.blobRoot, digest.slice(0, 2));
+    const destination = path.join(
+      directory,
+      `${digest}.${blobExtension(mediaType)}`,
+    );
+    await mkdir(directory, { recursive: true });
+    const temporary = `${destination}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      await writeFile(temporary, bytes, { flag: "wx" });
+      await rename(temporary, destination);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      if (!(isRecord(error) && error.code === "EEXIST")) throw error;
+    }
+    return destination;
   }
 }

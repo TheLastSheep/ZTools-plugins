@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   isCapturePaused,
+  defaultPrivacySettings,
   performDirectPaste,
   planRetentionPrune,
   shouldPersistClipboard,
@@ -107,10 +108,54 @@ describe("clipboard privacy", () => {
     const settings = {
       pause: { paused: true } as const,
       rules,
+      retention: { days: 30, maxBlobBytes: 512 * 1_024 * 1_024 },
+      screenShareProtection: false,
     };
 
     await store.put(settings);
     await expect(store.get()).resolves.toEqual(settings);
+  });
+
+  it("upgrades legacy privacy documents with safe retention and screen-share defaults", async () => {
+    const database: ZToolsDocumentDatabase = {
+      async get() {
+        return {
+          _id: "pasteboard-pro:settings:privacy",
+          settings: {
+            pause: { paused: false },
+            rules: {
+              ignoredBundleIds: [],
+              blockLikelySecrets: true,
+              contentRules: [],
+            },
+          },
+        };
+      },
+      async put() {
+        return { ok: true };
+      },
+    };
+    await expect(new ZToolsPrivacySettingsStore(database).get()).resolves.toMatchObject({
+      retention: { days: 90, maxBlobBytes: 1_073_741_824 },
+      screenShareProtection: true,
+    });
+  });
+
+  it("rejects unsafe retention settings before persistence", async () => {
+    const store = new ZToolsPrivacySettingsStore({
+      async get() {
+        throw { status: 404 };
+      },
+      async put() {
+        return { ok: true };
+      },
+    });
+    await expect(
+      store.put({
+        ...defaultPrivacySettings,
+        retention: { days: 0, maxBlobBytes: 1_073_741_824 },
+      }),
+    ).rejects.toThrow(/between 1 and 3650/i);
   });
 });
 

@@ -8,11 +8,15 @@ const emit = defineEmits<{
   select: [id: string | undefined];
   create: [name: string];
   rename: [id: string, name: string];
+  updateColor: [value: { id: string; color: string }];
+  move: [value: { id: string; direction: -1 | 1 }];
+  delete: [id: string];
   assign: [pinboardId: string | undefined, itemId: string];
 }>();
 
 const creating = ref(false);
 const editingId = ref<string>();
+const managingId = ref<string>();
 const draft = ref("");
 
 function beginCreate(): void {
@@ -49,6 +53,13 @@ function dropItem(event: DragEvent, pinboardId: string | undefined): void {
   const itemId = event.dataTransfer?.getData("application/x-pasteboard-pro-item");
   if (itemId) emit("assign", pinboardId, itemId);
 }
+
+function changeColor(event: Event, id: string): void {
+  const target = event.target;
+  if (target instanceof HTMLInputElement) {
+    emit("updateColor", { id, color: target.value });
+  }
+}
 </script>
 
 <template>
@@ -67,6 +78,7 @@ function dropItem(event: DragEvent, pinboardId: string | undefined): void {
       :key="pinboard.id"
       class="pinboard-chip"
       :class="{ 'pinboard-chip--active': activeId === pinboard.id }"
+      @contextmenu.prevent="managingId = managingId === pinboard.id ? undefined : pinboard.id"
       @dragover.prevent
       @drop.prevent="dropItem($event, pinboard.id)"
     >
@@ -79,6 +91,13 @@ function dropItem(event: DragEvent, pinboardId: string | undefined): void {
         <span class="dot" :style="{ background: pinboard.color }"></span>
         <span>{{ pinboard.name }}</span>
       </button>
+      <button
+        v-if="editingId !== pinboard.id"
+        type="button"
+        class="manage-button"
+        :aria-label="`管理 ${pinboard.name}`"
+        @click.stop="managingId = managingId === pinboard.id ? undefined : pinboard.id"
+      >•••</button>
       <input
         v-else
         v-model="draft"
@@ -90,6 +109,18 @@ function dropItem(event: DragEvent, pinboardId: string | undefined): void {
         @keydown.escape.prevent="cancelEdit"
         @blur="commitRename(pinboard.id)"
       />
+      <div v-if="managingId === pinboard.id" class="chip-controls" :aria-label="`${pinboard.name} 管理选项`">
+        <input
+          class="color-input"
+          type="color"
+          :value="pinboard.color"
+          aria-label="Pinboard 颜色"
+          @change="changeColor($event, pinboard.id)"
+        />
+        <button type="button" aria-label="向左移动" :disabled="pinboards[0]?.id === pinboard.id" @click="emit('move', { id: pinboard.id, direction: -1 })">←</button>
+        <button type="button" aria-label="向右移动" :disabled="pinboards.at(-1)?.id === pinboard.id" @click="emit('move', { id: pinboard.id, direction: 1 })">→</button>
+        <button type="button" class="danger-button" @click="managingId = undefined; emit('delete', pinboard.id)">删除</button>
+      </div>
     </div>
     <input
       v-if="creating"
@@ -144,11 +175,58 @@ button.active {
 }
 
 .pinboard-chip {
+  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   min-height: 26px;
   border-radius: 9px;
+}
+
+.manage-button {
+  width: 22px;
+  min-width: 22px;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pinboard-chip:hover .manage-button,
+.pinboard-chip:focus-within .manage-button {
+  opacity: 1;
+}
+
+.chip-controls {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  padding-right: 4px;
+}
+
+.chip-controls button {
+  min-width: 23px;
+  min-height: 23px;
+  padding: 0 5px;
+}
+
+.chip-controls button:disabled {
+  cursor: default;
+  opacity: .3;
+}
+
+.color-input {
+  width: 23px;
+  height: 23px;
+  padding: 2px;
+  border: 1px solid var(--pb-line);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.danger-button {
+  color: #d94b57;
 }
 
 .pinboard-chip > button {

@@ -16,8 +16,11 @@ import {
   type VaultObjectDescriptor,
 } from "@pasteboard-pro/sync-protocol";
 import {
+  decryptEnvelopeBytes,
   decryptEnvelope,
+  encryptBytes,
   encryptObject,
+  vaultBytesRevision,
   vaultRevision,
 } from "@pasteboard-pro/sync-protocol/node-crypto";
 
@@ -30,9 +33,17 @@ import {
 
 export type SyncEntity = PasteItem | Pinboard | Tombstone;
 
+export type SyncBlob = Readonly<{
+  id: string;
+  mediaType: string;
+  bytes: Uint8Array;
+}>;
+
 export interface SyncEntityRepository {
   listEntities(): Promise<SyncEntity[]>;
   applyEntities(entities: readonly SyncEntity[]): Promise<void>;
+  readBlob(blobId: string): Promise<SyncBlob | undefined>;
+  writeBlob(blob: SyncBlob): Promise<void>;
 }
 
 export type ZToolsVaultRuntimeOptions = Readonly<{
@@ -43,7 +54,8 @@ export type ZToolsVaultRuntimeOptions = Readonly<{
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
-const MAX_OBJECT_BYTES = 100 * 1_024 * 1_024 + 64 * 1_024;
+const MAX_BLOB_BYTES = 100 * 1_024 * 1_024;
+const MAX_OBJECT_BYTES = 140 * 1_024 * 1_024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -111,6 +123,75 @@ function encryptedEntity(entity: SyncEntity, key: Uint8Array): EncryptedSyncObje
     path: objectPath(objectDescriptor),
     body: encoder.encode(canonicalJson(envelope)),
   };
+}
+
+function blobDescriptor(blob: SyncBlob, key: Uint8Array): VaultObjectDescriptor {
+  if (blob.bytes.byteLength > MAX_BLOB_BYTES) {
+    throw new RangeError(`Blob ${blob.id} exceeds 100 MiB`);
+  }
+  return {
+    version: 1,
+    objectType: "blob",
+    objectId: blob.id,
+    revision: vaultBytesRevision(key, blob.bytes),
+  };
+}
+
+function encryptedBlob(blob: SyncBlob, key: Uint8Array): EncryptedSyncObject {
+  const descriptor = blobDescriptor(blob, key);
+  return {
+    id: blob.id,
+    path: objectPath(descriptor),
+    body: encoder.encode(canonicalJson(encryptBytes(key, descriptor, blob.bytes))),
+  };
+}
+
+async function remoteBlob(
+  client: WebDavVaultClient,
+  key: Uint8Array,
+  entry: VaultIndexEntry,
+  mediaType: string,
+): Promise<SyncBlob> {
+  const remote = await client.readFile(entry.path);
+  if (remote === undefined) {
+    throw new VaultSyncError("corrupted", `Remote blob is missing: ${entry.path}`);
+  }
+  if (remote.body.byteLength > MAX_OBJECT_BYTES) {
+    throw new VaultSyncError("corrupted", `Remote blob is too large: ${entry.path}`);
+  }
+  let envelope;
+  try {
+    envelope = parseVaultEnvelope(JSON.parse(decoder.decode(remote.body)) as unknown);
+  } catch (error) {
+    throw new VaultSyncError("corrupted", `Remote blob envelope is invalid: ${entry.path}`, { cause: error });
+  }
+  if (
+    envelope.objectType !== "blob" ||
+    envelope.objectId !== entry.objectId ||
+    envelope.revision !== entry.revision
+  ) {
+    throw new VaultSyncError("corrupted", `Remote blob descriptor mismatch: ${entry.path}`);
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await decryptEnvelopeBytes(key, envelope);
+  } catch (error) {
+    throw new VaultSyncError("corrupted", `Remote blob authentication failed: ${entry.path}`, { cause: error });
+  }
+  if (bytes.byteLength > MAX_BLOB_BYTES || vaultBytesRevision(key, bytes) !== entry.revision) {
+    throw new VaultSyncError("corrupted", `Remote blob revision is invalid: ${entry.path}`);
+  }
+  return { id: entry.objectId, mediaType, bytes };
+}
+
+function referencedBlobMedia(entities: readonly SyncEntity[]): Map<string, string> {
+  return new Map(
+    entities.flatMap((entity) =>
+      !isTombstone(entity) && "kind" in entity && entity.payload.blobId !== undefined
+        ? [[entity.payload.blobId, entity.payload.mediaType ?? "application/octet-stream"] as const]
+        : [],
+    ),
+  );
 }
 
 async function remoteEntities(
@@ -231,11 +312,50 @@ export async function syncZToolsVault(
         const encrypted = encryptedEntity(entity, options.key);
         await options.client.putFileIfAbsent(encrypted.path, encrypted.body);
       }
+      const remoteBlobs = new Map(
+        remote.blobs.map((entry) => [entry.objectId, entry] as const),
+      );
+      const blobEntries = new Map(
+        remote.blobs.map((entry) => [entry.objectId, entry] as const),
+      );
+      for (const [blobId, mediaType] of referencedBlobMedia(merged)) {
+        let blob = await options.repository.readBlob(blobId);
+        if (blob === undefined) {
+          const entry = remoteBlobs.get(blobId);
+          if (entry === undefined) {
+            throw new VaultSyncError(
+              "corrupted",
+              `Clipboard item references a missing blob: ${blobId}`,
+            );
+          }
+          blob = await remoteBlob(options.client, options.key, entry, mediaType);
+          await options.repository.writeBlob(blob);
+        }
+        const encrypted = encryptedBlob(blob, options.key);
+        const descriptor = blobDescriptor(blob, options.key);
+        const remoteEntry = remoteBlobs.get(blobId);
+        if (
+          remoteEntry !== undefined &&
+          remoteEntry.revision !== descriptor.revision
+        ) {
+          throw new VaultSyncError(
+            "corrupted",
+            `Blob ${blobId} has conflicting immutable revisions`,
+          );
+        }
+        await options.client.putFileIfAbsent(encrypted.path, encrypted.body);
+        blobEntries.set(blobId, {
+          objectType: "blob",
+          objectId: descriptor.objectId,
+          revision: descriptor.revision,
+          path: encrypted.path,
+        });
+      }
       const index = {
         version: 1 as const,
         objects: [
           ...merged.map((entity) => indexEntry(entity, options.key)),
-          ...remote.blobs,
+          ...blobEntries.values(),
         ],
       };
       const canonicalIndex = JSON.parse(canonicalVaultIndex(index)) as unknown;

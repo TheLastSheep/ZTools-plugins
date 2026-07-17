@@ -1,3 +1,5 @@
+import { readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import {
@@ -7,7 +9,10 @@ import {
   type ZToolsDocumentDatabase,
 } from "./clipboard-store";
 import { createOcrClient } from "./ocr";
+import { openQuickLook } from "./quick-look";
+import { rotateImageFile } from "./image-rotation";
 import { createKeychainSecretStore } from "./keychain";
+import { copyCanonicalRecord, pasteCanonicalRecord } from "./paste-item";
 import {
   isCapturePaused,
   performDirectPaste,
@@ -72,23 +77,35 @@ type ZToolsHost = Readonly<{
 type PasteboardProBridge = Readonly<{
   searchHistory(query?: string, limit?: number): Promise<Readonly<{ items: unknown[]; total: number }>>;
   getPrivacySettings(): Promise<PrivacySettings>;
+  savePrivacySettings(settings: PrivacySettings): Promise<PrivacySettings>;
   setCapturePause(pause: CapturePauseState): Promise<PrivacySettings>;
   pasteHostItem(hostItemId: string): Promise<DirectPasteResult>;
   pasteContent(content: ClipboardWriteContent): Promise<DirectPasteResult>;
-  pasteItem(itemId: string): Promise<DirectPasteResult>;
+  pasteItem(itemId: string, plainText?: boolean): Promise<DirectPasteResult>;
+  copyItem(itemId: string, plainText?: boolean): Promise<void>;
+  createTextItem(text: string, title?: string): Promise<unknown>;
+  updateTextItem(itemId: string, text: string, title?: string): Promise<unknown>;
+  updateItemTitle(itemId: string, title: string): Promise<unknown>;
   listPinboards(): Promise<unknown[]>;
   createPinboard(name: string, color: string): Promise<unknown>;
   renamePinboard(id: string, name: string): Promise<unknown>;
+  updatePinboardColor(id: string, color: string): Promise<unknown>;
   movePinboard(
     id: string,
     beforeId?: string,
     afterId?: string,
   ): Promise<unknown>;
+  deletePinboard(
+    id: string,
+  ): Promise<Readonly<{ id: string; unassignedItems: number }>>;
   assignItemsToPinboard(
     itemIds: readonly string[],
     pinboardId: string | undefined,
   ): Promise<unknown[]>;
+  getItemPreview(itemId: string): Promise<Readonly<{ mediaType: string; dataBase64: string }> | null>;
   recognizeItem(itemId: string): Promise<string>;
+  rotateImage(itemId: string, quarterTurns: -1 | 1): Promise<unknown>;
+  quickLookItem(itemId: string): Promise<void>;
   getSyncSettings(): Promise<SyncSettings>;
   saveSyncSettings(input: SaveSyncConfigurationInput): Promise<SyncSettings>;
   retrySync(): Promise<SyncSettings>;
@@ -199,9 +216,10 @@ async function runRetentionIfDue(): Promise<void> {
     return;
   }
   try {
+    const settings = await privacyStore.get();
     const result = await executeRetentionPrune(store, {
-      days: 90,
-      maxBlobBytes: 1_073_741_824,
+      days: settings.retention.days,
+      maxBlobBytes: settings.retention.maxBlobBytes,
       now,
     });
     window.dispatchEvent(
@@ -247,10 +265,15 @@ if (!isShelfWindow) {
       new CustomEvent("pasteboard-pro:host-enter", { detail: parameter }),
     );
     scheduleHistoryMirror();
-    shelfWindows.open(activeDisplay(), {
-      edge: "bottom",
-      contentProtection: true,
-    });
+    void privacyStore
+      .get()
+      .then((settings) => {
+        shelfWindows.open(activeDisplay(), {
+          edge: "bottom",
+          contentProtection: settings.screenShareProtection,
+        });
+      })
+      .catch(reportSynchronizationError);
   });
 
   ztools.clipboard.onChange(scheduleHistoryMirror);
@@ -283,6 +306,11 @@ const bridge: PasteboardProBridge = {
   searchHistory: (query = "", limit = 1_000) =>
     store.search(query, Math.max(1, Math.min(10_000, Math.floor(limit)))),
   getPrivacySettings: () => privacyStore.get(),
+  async savePrivacySettings(settings) {
+    await privacyStore.put(settings);
+    shelfWindows.setContentProtection(settings.screenShareProtection);
+    return privacyStore.get();
+  },
   async setCapturePause(pause) {
     const current = await privacyStore.get();
     const updated = { ...current, pause };
@@ -293,36 +321,37 @@ const bridge: PasteboardProBridge = {
     performDirectPaste({ type: "host", hostItemId }, ztools.clipboard),
   pasteContent: (content) =>
     performDirectPaste({ type: "content", content }, ztools.clipboard),
-  async pasteItem(itemId) {
+  async pasteItem(itemId, plainText = false) {
     const record = await store.findRecordByItemId(itemId);
     if (record === undefined) {
       throw new RangeError("Clipboard item no longer exists");
     }
-    if (record.origin.host === "ztools") {
-      return performDirectPaste(
-        { type: "host", hostItemId: record.origin.hostItemId },
-        ztools.clipboard,
-      );
+    return pasteCanonicalRecord(record, ztools.clipboard, plainText);
+  },
+  async copyItem(itemId, plainText = false) {
+    const record = await store.findRecordByItemId(itemId);
+    if (record === undefined) {
+      throw new RangeError("Clipboard item no longer exists");
     }
-    if (record.item.payload.html !== undefined) {
-      return performDirectPaste(
-        {
-          type: "content",
-          content: { type: "html", content: record.item.payload.html },
-        },
-        ztools.clipboard,
-      );
-    }
-    if (record.item.payload.text !== undefined) {
-      return performDirectPaste(
-        {
-          type: "content",
-          content: { type: "text", content: record.item.payload.text },
-        },
-        ztools.clipboard,
-      );
-    }
-    throw new RangeError("该同步记录只有远端附件，当前设备尚未下载内容");
+    await copyCanonicalRecord(record, ztools.clipboard, plainText);
+  },
+  async createTextItem(text, title) {
+    const record = await store.createTextItem(text, title);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    window.dispatchEvent(new CustomEvent("pasteboard-pro:history-changed"));
+    return record.item;
+  },
+  async updateTextItem(itemId, text, title) {
+    const record = await store.updateTextItem(itemId, text, title);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    window.dispatchEvent(new CustomEvent("pasteboard-pro:history-changed"));
+    return record.item;
+  },
+  async updateItemTitle(itemId, title) {
+    const record = await store.updateItemTitle(itemId, title);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    window.dispatchEvent(new CustomEvent("pasteboard-pro:history-changed"));
+    return record.item;
   },
   listPinboards: () => pinboardStore.list(),
   async createPinboard(name, color) {
@@ -335,10 +364,29 @@ const bridge: PasteboardProBridge = {
     void scheduleVaultSync().catch(reportSynchronizationError);
     return result;
   },
+  async updatePinboardColor(id, color) {
+    const result = await pinboardStore.updateColor(id, color);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    return result;
+  },
   async movePinboard(id, beforeId, afterId) {
     const result = await pinboardStore.moveBetween(id, beforeId, afterId);
     void scheduleVaultSync().catch(reportSynchronizationError);
     return result;
+  },
+  async deletePinboard(id) {
+    const records = (await store.listRecords()).filter(
+      (record) => record.item.pinboardId === id,
+    );
+    if (records.length > 0) {
+      await store.assignToPinboard(
+        records.map((record) => record.item.id),
+        undefined,
+      );
+    }
+    await pinboardStore.delete(id);
+    void scheduleVaultSync().catch(reportSynchronizationError);
+    return { id, unassignedItems: records.length };
   },
   async assignItemsToPinboard(itemIds, pinboardId) {
     if (
@@ -351,13 +399,28 @@ const bridge: PasteboardProBridge = {
     void scheduleVaultSync().catch(reportSynchronizationError);
     return result;
   },
+  async getItemPreview(itemId) {
+    const record = await store.findRecordByItemId(itemId);
+    const imagePath = record?.origin.imagePath;
+    const mediaType = record?.item.payload.mediaType;
+    if (
+      record === undefined ||
+      imagePath === undefined ||
+      mediaType === undefined ||
+      (!mediaType.startsWith("image/") && mediaType !== "application/pdf")
+    ) return null;
+    const bytes = await readFile(imagePath);
+    if (bytes.byteLength > 25 * 1_024 * 1_024) {
+      throw new RangeError("PasteboardPro preview is limited to 25 MiB");
+    }
+    return { mediaType, dataBase64: bytes.toString("base64") };
+  },
   async recognizeItem(itemId) {
     if (process.platform !== "darwin") {
       throw new Error("本地 Vision OCR 仅支持 macOS");
     }
     const record = await store.findRecordByItemId(itemId);
-    const imagePath =
-      record?.origin.host === "ztools" ? record.origin.imagePath : undefined;
+    const imagePath = record?.origin.imagePath;
     if (record === undefined || imagePath === undefined) {
       throw new RangeError("该记录没有可识别的本地图片");
     }
@@ -365,6 +428,48 @@ const bridge: PasteboardProBridge = {
     await store.updateOcrText(itemId, text);
     void scheduleVaultSync().catch(reportSynchronizationError);
     return text;
+  },
+  async rotateImage(itemId, quarterTurns) {
+    if (process.platform !== "darwin") {
+      throw new Error("本地图片旋转仅支持 macOS");
+    }
+    const record = await store.findRecordByItemId(itemId);
+    const imagePath = record?.origin.imagePath;
+    if (record === undefined || record.item.kind !== "image" || imagePath === undefined) {
+      throw new RangeError("该记录没有可旋转的本地图片");
+    }
+    const destinationPath = path.join(
+      os.tmpdir(),
+      `pasteboard-pro-rotate-${process.pid}-${crypto.randomUUID()}.png`,
+    );
+    try {
+      await rotateImageFile({ sourcePath: imagePath, destinationPath, quarterTurns });
+      const bytes = await readFile(destinationPath);
+      const blob = await syncRepository.storeLocalBlob(bytes, "image/png");
+      const updated = await store.updateImagePayload(itemId, {
+        blobId: blob.id,
+        revision: `sha256:${blob.id.slice("blob-".length)}`,
+        imagePath: blob.imagePath,
+        blobBytes: blob.blobBytes,
+        mediaType: "image/png",
+      });
+      void scheduleVaultSync().catch(reportSynchronizationError);
+      return updated.item;
+    } finally {
+      await rm(destinationPath, { force: true });
+    }
+  },
+  async quickLookItem(itemId) {
+    const record = await store.findRecordByItemId(itemId);
+    if (record === undefined) {
+      throw new RangeError("Clipboard item no longer exists");
+    }
+    const filePath =
+      record.origin.imagePath ?? record.item.payload.filePaths?.find((value) => value.length > 0);
+    if (filePath === undefined) {
+      throw new RangeError("该记录没有可供 Quick Look 打开的本地文件");
+    }
+    await openQuickLook(filePath);
   },
   getSyncSettings: () => syncStore.getSettings(),
   async saveSyncSettings(input) {

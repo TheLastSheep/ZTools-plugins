@@ -5,7 +5,7 @@ import path from "node:path";
 
 const sharpCalls = vi.hoisted(() => [] as Array<{ input: unknown; options: unknown }>);
 
-vi.mock("../src/preload/sharp-runtime", () => {
+vi.mock("sharp", () => {
   const makePipeline = (width: number, height: number) => {
     const pipeline = {
       metadata: vi.fn(async () => ({ width, height, format: "png" })),
@@ -29,7 +29,7 @@ vi.mock("../src/preload/sharp-runtime", () => {
     if (typeof input === "string" && input.includes("watermark")) return makePipeline(2, 2);
     return makePipeline(10, 10);
   });
-  return { sharp: sharpMock };
+  return { default: sharpMock };
 });
 
 describe("watermark source limits", () => {

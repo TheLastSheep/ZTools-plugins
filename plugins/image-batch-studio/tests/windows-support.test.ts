@@ -4,22 +4,23 @@ import runtimeConfig from "../scripts/sharp-runtime-targets.json";
 import { getZToolsRoots } from "../scripts/ztools-data-paths.mjs";
 
 describe("Windows support", () => {
-  it("publishes the plugin for macOS and Windows without bundled native artifacts", async () => {
+  it("publishes the plugin for macOS and Windows with native artifacts unpacked", async () => {
     const manifest = JSON.parse(await fs.readFile(new URL("../plugin.json", import.meta.url), "utf8"));
 
     expect(manifest.platform).toEqual(expect.arrayContaining(["darwin", "win32"]));
-    expect(manifest.unpack).toBeUndefined();
+    expect(manifest.unpack).toContain("preload/node_modules");
+    expect(manifest.unpack).toContain(".node");
+    expect(manifest.unpack).toContain(".dll");
+    expect(manifest.unpack).toContain(".dylib");
   });
 
   it("packages Sharp runtimes for Windows x64 and ARM64", () => {
-    const targets = runtimeConfig.targets.map((target) => `${target.platform}/${target.arch}`);
+    const targets = runtimeConfig.targets.map((target) => `${target.os}/${target.cpu}`);
 
     expect(targets).toEqual(expect.arrayContaining(["win32/x64", "win32/arm64"]));
-    for (const target of runtimeConfig.targets.filter((item) => item.platform === "win32")) {
+    for (const target of runtimeConfig.targets.filter((item) => item.os === "win32")) {
       expect(target.packages.some((runtimePackage) => runtimePackage.artifacts.includes(".node"))).toBe(true);
       expect(target.packages.some((runtimePackage) => runtimePackage.artifacts.includes(".dll"))).toBe(true);
-      expect(target.packages.every((runtimePackage) => runtimePackage.url.startsWith("https://"))).toBe(true);
-      expect(target.packages.every((runtimePackage) => runtimePackage.integrity.startsWith("sha512-"))).toBe(true);
     }
   });
 

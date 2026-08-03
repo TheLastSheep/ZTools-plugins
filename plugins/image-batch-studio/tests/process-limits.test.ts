@@ -5,7 +5,7 @@ import path from "node:path";
 
 const pipelineReached = vi.hoisted(() => vi.fn());
 
-vi.mock("../src/preload/sharp-runtime", () => {
+vi.mock("sharp", () => {
   const sharpMock = vi.fn(() => ({
     metadata: vi.fn(async () => ({ width: 10000, height: 10000, format: "png" })),
     rotate: vi.fn(() => {
@@ -13,7 +13,7 @@ vi.mock("../src/preload/sharp-runtime", () => {
       throw new Error("processing pipeline should not run");
     })
   }));
-  return { sharp: sharpMock };
+  return { default: sharpMock };
 });
 
 describe("image processing limits", () => {

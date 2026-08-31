@@ -34,6 +34,12 @@ import {
 } from "./state";
 import { queryAfterTypeToSearch } from "./type-to-search";
 import { isListNavigationKey, shouldResumeListControl } from "./list-control-key";
+import { shelfKeyboardRoute } from "./keyboard-routing";
+import {
+  hasAnyCommandModifier,
+  matchesPrimaryShortcut,
+  resolveShortcutPlatform,
+} from "./platform-shortcuts";
 import { themeCssVariables } from "./theme";
 import {
   applyListOrder,
@@ -57,6 +63,13 @@ const panelMode =
     ? panel
     : undefined;
 const isShelfMode = params.get("shelf") === "1";
+const hostCompatibility = window.pasteboardPro?.getHostCompatibility?.();
+const unsupportedHost = hostCompatibility?.supported === false;
+const supportsScreenshot =
+  window.pasteboardPro?.getPlatformCapabilities().supportsScreenCapture ?? false;
+const shortcutPlatform = resolveShortcutPlatform(
+  window.pasteboardPro?.getPlatformCapabilities().platform,
+);
 const dockValue = params.get("dock");
 const edge: DockEdge =
   dockValue === "top" ||
@@ -70,6 +83,7 @@ const state = reactive(
   createPasteboardState({
     items: [],
     dockEdge: edge,
+    shortcutPlatform,
   }),
 );
 const pinboards = ref<Pinboard[]>([]);
@@ -204,6 +218,23 @@ async function pasteItem(
     if (closeAfter && (isShelfMode || panelMode === "preview")) window.close();
   } catch (error) {
     status.value = error instanceof Error ? error.message : "粘贴失败";
+  }
+}
+
+async function captureScreenshot(): Promise<void> {
+  status.value = "请选择截图区域";
+  try {
+    const result = await window.pasteboardPro?.captureScreenshot();
+    if (result === undefined) {
+      status.value = "已取消截图";
+      return;
+    }
+    const bounds = result.bounds;
+    status.value = bounds === undefined
+      ? "截图已加入剪贴板"
+      : `截图已加入剪贴板（${Math.round(bounds.width)} × ${Math.round(bounds.height)}）`;
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : "截图失败";
   }
 }
 
@@ -378,12 +409,12 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (!isShelfMode) return;
   if (settingsOpen.value) return;
-  if (event.metaKey && event.key.toLowerCase() === "f") {
+  if (matchesPrimaryShortcut(event, shortcutPlatform, "f")) {
     event.preventDefault();
     document.querySelector<HTMLInputElement>("[data-pb-search]")?.focus();
     return;
   }
-  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "n") {
+  if (matchesPrimaryShortcut(event, shortcutPlatform, "n")) {
     event.preventDefault();
     createTextItem();
     return;
@@ -420,33 +451,50 @@ function onKeydown(event: KeyboardEvent): void {
       return;
     }
   }
-  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "c") {
+  if (matchesPrimaryShortcut(event, shortcutPlatform, "c")) {
     event.preventDefault();
     void copySelection();
     return;
   }
-  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "t") {
+  if (matchesPrimaryShortcut(event, shortcutPlatform, "t")) {
     event.preventDefault();
     void togglePause();
     return;
   }
-  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "e" && focusedItem.value !== undefined) {
+  if (matchesPrimaryShortcut(event, shortcutPlatform, "e") && focusedItem.value !== undefined) {
     event.preventDefault();
     editItem(focusedItem.value.id);
     return;
   }
-  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "r" && focusedItem.value !== undefined) {
+  if (matchesPrimaryShortcut(event, shortcutPlatform, "r") && focusedItem.value !== undefined) {
     event.preventDefault();
     renameItem(focusedItem.value.id);
     return;
   }
-  const isSpaceActivation =
-    event.key === " " &&
-    event.target instanceof Element &&
-    event.target.closest(
-      "button, a[href], summary, [role='button'], [role='menuitem']",
-    ) !== null;
-  const nextQuery = isSpaceActivation
+  const previousSelection = state.selection.selected.join("\0");
+  const keyboardTarget = event.target instanceof Element ? event.target : undefined;
+  const listCardTarget = keyboardTarget?.closest<HTMLElement>("[data-pb-item-id]");
+  const keyboardRoute = shelfKeyboardRoute(event.key, {
+    nativeControl:
+      keyboardTarget !== undefined &&
+      keyboardTarget.closest(
+        "button, a[href], summary, [role='button'], [role='menuitem']",
+      ) !== null,
+    listCard: listCardTarget !== undefined && listCardTarget !== null,
+  });
+  if (keyboardRoute === "native-control") return;
+  if (
+    keyboardRoute === "list-card" &&
+    !hasAnyCommandModifier(event) &&
+    listCardTarget !== undefined &&
+    listCardTarget !== null
+  ) {
+    const itemId = listCardTarget.dataset.pbItemId;
+    if (itemId !== undefined && !state.selection.selected.includes(itemId)) {
+      state.replaceSelection(itemId);
+    }
+  }
+  const nextQuery = keyboardRoute === "list-card"
     ? undefined
     : queryAfterTypeToSearch(query.value, event);
   if (nextQuery !== undefined) {
@@ -459,11 +507,11 @@ function onKeydown(event: KeyboardEvent): void {
     );
     return;
   }
-  const previousSelection = state.selection.selected.join("\0");
   const effect = state.handleKeyboard(
     {
       key: event.key,
       metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
       shiftKey: event.shiftKey,
       altKey: event.altKey,
     },
@@ -915,8 +963,17 @@ onBeforeUnmount(() => {
       'stage--image-background': hasImageBackground,
     }"
   >
+    <section v-if="unsupportedHost" class="host-upgrade-notice" role="alert">
+      <span aria-hidden="true">↑</span>
+      <h1>建议升级 ZTools</h1>
+      <p>
+        当前版本 {{ hostCompatibility?.currentVersion ?? "未知" }} 低于支持范围。
+        为了获得更完整、稳定的体验，请升级至 ZTools
+        {{ hostCompatibility?.minimumVersion ?? "2.4.0" }} 或更高版本。
+      </p>
+    </section>
     <Shelf
-      v-if="isShelfMode"
+      v-else-if="isShelfMode"
       :items="visibleItems"
       :pinboards="pinboards"
       :smart-pinboards="defaultSmartPinboards"
@@ -930,6 +987,7 @@ onBeforeUnmount(() => {
       :paste-stack-count="state.pasteStack.itemIds.length"
       :paste-stack-direction="state.pasteStack.direction"
       :reorder-enabled="reorderEnabled"
+      :supports-screenshot="supportsScreenshot"
       @update:query="updateQuery"
       @select="selectItem"
       @paste="pasteItem"
@@ -948,12 +1006,13 @@ onBeforeUnmount(() => {
       @clear-stack="updatePasteStack({ type: 'clear' })"
       @open-privacy-settings="openPrivacySettings"
       @create-text="createTextItem"
+      @capture-screenshot="captureScreenshot"
       @edit-item="editItem"
       @rename-item="renameItem"
       @reorder="reorderVisibleItems"
     />
     <SettingsPanel
-      v-if="settingsOpen && (panelMode === undefined || panelMode === 'privacy' || panelMode === 'sync')"
+      v-if="!unsupportedHost && settingsOpen && (panelMode === undefined || panelMode === 'privacy' || panelMode === 'sync')"
       :standalone="panelMode === 'privacy' || panelMode === 'sync'"
       :initial-tab="settingsInitialTab"
       :privacy-settings="privacySettings"
@@ -966,7 +1025,7 @@ onBeforeUnmount(() => {
       @history-cleared="onHistoryCleared"
     />
     <TextEditor
-      v-if="panelMode === 'editor' && editor"
+      v-if="!unsupportedHost && panelMode === 'editor' && editor"
       standalone
       :mode="editor.mode"
       :title="editor.title"
@@ -976,7 +1035,7 @@ onBeforeUnmount(() => {
       @save="saveEditor"
     />
     <Preview
-      v-if="panelMode === 'preview' && previewItem"
+      v-if="!unsupportedHost && panelMode === 'preview' && previewItem"
       standalone
       :item="previewItem"
       @close="closeWindow"
@@ -987,7 +1046,7 @@ onBeforeUnmount(() => {
       @edit="editItem"
       @rename="renameItem"
     />
-    <p v-if="isShelfMode" class="status" aria-live="polite">{{ status }}</p>
+    <p v-if="!unsupportedHost && isShelfMode" class="status" aria-live="polite">{{ status }}</p>
   </main>
 </template>
 
@@ -1008,6 +1067,25 @@ onBeforeUnmount(() => {
   background-repeat: no-repeat;
   background-size: cover;
 }
+
+.host-upgrade-notice {
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  max-width: 460px;
+  gap: 10px;
+  margin: 24px;
+  padding: 28px;
+  border: 1px solid var(--pb-line);
+  border-radius: 20px;
+  background: var(--pb-glass-strong);
+  box-shadow: 0 20px 48px var(--pb-shadow);
+  text-align: center;
+}
+
+.host-upgrade-notice > span { color: var(--pb-violet); font-size: 30px; font-weight: 850; }
+.host-upgrade-notice h1 { margin: 0; color: var(--pb-ink); font-size: 20px; }
+.host-upgrade-notice p { margin: 0; color: var(--pb-muted); font-size: 13px; line-height: 1.7; }
 
 .stage--panel {
   position: relative;

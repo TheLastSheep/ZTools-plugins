@@ -1,0 +1,19 @@
+{
+  "name": "subtitle-workbench",
+  "title": "字幕工坊",
+  "description": "本地解析、校对、调整与导出 SRT/VTT 字幕；外部转写能力按需接入。",
+  "version": "0.1.0",
+  "author": "harris",
+  "main": "index.html",
+  "preload": "preload/services.cjs",
+  "logo": "logo.svg",
+  "platform": ["darwin", "win32", "linux"],
+  "categories": ["media", "text"],
+  "features": [{
+    "code": "subtitle-workbench-open",
+    "explain": "编辑、校对或转换一个字幕文件",
+    "icon": "logo.svg",
+    "platform": ["darwin", "win32", "linux"],
+    "cmds": ["字幕编辑", "SRT 转 VTT", "字幕校对", { "type": "files", "fileType": "file", "extensions": ["srt", "vtt", "mp4", "mov", "mkv", "mp3", "wav"], "minLength": 1, "maxLength": 1, "label": "打开一个字幕或媒体文件" }]
+  }]
+}

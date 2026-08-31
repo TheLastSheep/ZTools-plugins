@@ -1,0 +1,14 @@
+{
+  "name": "archive-workbench",
+  "title": "压缩包管家",
+  "version": "0.1.0",
+  "description": "Inspect, safely plan, create, and extract bounded ZIP archives.",
+  "author": "harris",
+  "main": "dist/index.html",
+  "logo": "dist/logo.svg",
+  "preload": "dist/preload/index.cjs",
+  "platform": ["darwin", "win32", "linux"],
+  "categories": ["productivity", "system"],
+  "features": [{"code": "archive-safety", "explain": "Preview selected archives and prepare a safe extraction plan.", "icon": "logo.svg", "cmds": ["压缩包预览", "安全解压"]}],
+  "development": {"main": "src/ui/index.html", "preload": "preload/index.cjs"}
+}

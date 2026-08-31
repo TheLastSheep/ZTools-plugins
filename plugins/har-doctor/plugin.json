@@ -1,0 +1,14 @@
+{
+  "name": "har-doctor",
+  "version": "0.1.0",
+  "title": "HAR 医生",
+  "description": "Offline HAR waterfall diagnostics with privacy-first reports.",
+  "author": "harris",
+  "platform": ["darwin", "win32", "linux"],
+  "categories": ["development", "network"],
+  "main": "dist/main/index.html",
+  "preload": "dist/preload/index.cjs",
+  "logo": "dist/logo.svg",
+  "development": { "main": "src/main/index.html", "preload": "src/preload/index.cjs" },
+  "features": [{ "code": "analyze-har", "icon": "logo.svg", "platform": ["darwin", "win32", "linux"], "explain": "分析一到两个 HAR 文件", "cmds": ["HAR 分析", "网络瀑布诊断"] }]
+}

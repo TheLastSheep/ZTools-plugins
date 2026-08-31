@@ -1,0 +1,14 @@
+{
+  "name": "share-sanitizer",
+  "title": "分享前脱敏",
+  "version": "0.1.0",
+  "description": "Review and redact sensitive text and images before sharing.",
+  "author": "harris",
+  "main": "dist/index.html",
+  "logo": "dist/logo.svg",
+  "preload": "dist/preload/index.cjs",
+  "platform": ["darwin", "win32", "linux"],
+  "categories": ["productivity", "text", "media"],
+  "features": [{"code": "sanitize-share", "explain": "Sanitize selected text, files, or images before sharing.", "icon": "logo.svg", "cmds": ["分享脱敏", "敏感信息清理", {"type":"files","fileType":"file","label":"脱敏文件","extensions":["txt","md","json","log","png","jpg","jpeg","webp"],"maxLength":1}, {"type":"img","label":"脱敏图片"}, {"type":"over","label":"脱敏选中文字","minLength":1,"maxLength":200000}]}],
+  "development": {"main": "src/ui/index.html", "preload": "preload/index.cjs"}
+}

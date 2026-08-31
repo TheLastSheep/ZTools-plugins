@@ -10,7 +10,6 @@ defineProps<{
   paused: boolean;
   compact: boolean;
   edge: DockEdge;
-  supportsScreenshot: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -19,7 +18,6 @@ const emit = defineEmits<{
   toggleCompact: [];
   openPrivacySettings: [];
   createText: [];
-  captureScreenshot: [];
 }>();
 
 const createTextShortcutTitle = computed(() => {
@@ -39,13 +37,6 @@ const createTextShortcutTitle = computed(() => {
     <SearchBar :model-value="query" @update:model-value="emit('update:query', $event)" />
     <div class="toolbar__actions">
       <button type="button" class="tool-button" :title="createTextShortcutTitle" @click="emit('createText')"><span aria-hidden="true">＋</span>新建</button>
-      <button
-        v-if="supportsScreenshot"
-        type="button"
-        class="tool-button"
-        title="区域截图并加入 Paste剪切板"
-        @click="emit('captureScreenshot')"
-      ><span aria-hidden="true">⌖</span>截图</button>
       <button
         type="button"
         class="tool-button"

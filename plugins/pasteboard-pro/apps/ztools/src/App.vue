@@ -63,10 +63,6 @@ const panelMode =
     ? panel
     : undefined;
 const isShelfMode = params.get("shelf") === "1";
-const hostCompatibility = window.pasteboardPro?.getHostCompatibility?.();
-const unsupportedHost = hostCompatibility?.supported === false;
-const supportsScreenshot =
-  window.pasteboardPro?.getPlatformCapabilities().supportsScreenCapture ?? false;
 const shortcutPlatform = resolveShortcutPlatform(
   window.pasteboardPro?.getPlatformCapabilities().platform,
 );
@@ -218,23 +214,6 @@ async function pasteItem(
     if (closeAfter && (isShelfMode || panelMode === "preview")) window.close();
   } catch (error) {
     status.value = error instanceof Error ? error.message : "粘贴失败";
-  }
-}
-
-async function captureScreenshot(): Promise<void> {
-  status.value = "请选择截图区域";
-  try {
-    const result = await window.pasteboardPro?.captureScreenshot();
-    if (result === undefined) {
-      status.value = "已取消截图";
-      return;
-    }
-    const bounds = result.bounds;
-    status.value = bounds === undefined
-      ? "截图已加入剪贴板"
-      : `截图已加入剪贴板（${Math.round(bounds.width)} × ${Math.round(bounds.height)}）`;
-  } catch (error) {
-    status.value = error instanceof Error ? error.message : "截图失败";
   }
 }
 
@@ -963,17 +942,8 @@ onBeforeUnmount(() => {
       'stage--image-background': hasImageBackground,
     }"
   >
-    <section v-if="unsupportedHost" class="host-upgrade-notice" role="alert">
-      <span aria-hidden="true">↑</span>
-      <h1>建议升级 ZTools</h1>
-      <p>
-        当前版本 {{ hostCompatibility?.currentVersion ?? "未知" }} 低于支持范围。
-        为了获得更完整、稳定的体验，请升级至 ZTools
-        {{ hostCompatibility?.minimumVersion ?? "2.4.0" }} 或更高版本。
-      </p>
-    </section>
     <Shelf
-      v-else-if="isShelfMode"
+      v-if="isShelfMode"
       :items="visibleItems"
       :pinboards="pinboards"
       :smart-pinboards="defaultSmartPinboards"
@@ -987,7 +957,6 @@ onBeforeUnmount(() => {
       :paste-stack-count="state.pasteStack.itemIds.length"
       :paste-stack-direction="state.pasteStack.direction"
       :reorder-enabled="reorderEnabled"
-      :supports-screenshot="supportsScreenshot"
       @update:query="updateQuery"
       @select="selectItem"
       @paste="pasteItem"
@@ -1006,13 +975,12 @@ onBeforeUnmount(() => {
       @clear-stack="updatePasteStack({ type: 'clear' })"
       @open-privacy-settings="openPrivacySettings"
       @create-text="createTextItem"
-      @capture-screenshot="captureScreenshot"
       @edit-item="editItem"
       @rename-item="renameItem"
       @reorder="reorderVisibleItems"
     />
     <SettingsPanel
-      v-if="!unsupportedHost && settingsOpen && (panelMode === undefined || panelMode === 'privacy' || panelMode === 'sync')"
+      v-if="settingsOpen && (panelMode === undefined || panelMode === 'privacy' || panelMode === 'sync')"
       :standalone="panelMode === 'privacy' || panelMode === 'sync'"
       :initial-tab="settingsInitialTab"
       :privacy-settings="privacySettings"
@@ -1025,7 +993,7 @@ onBeforeUnmount(() => {
       @history-cleared="onHistoryCleared"
     />
     <TextEditor
-      v-if="!unsupportedHost && panelMode === 'editor' && editor"
+      v-if="panelMode === 'editor' && editor"
       standalone
       :mode="editor.mode"
       :title="editor.title"
@@ -1035,7 +1003,7 @@ onBeforeUnmount(() => {
       @save="saveEditor"
     />
     <Preview
-      v-if="!unsupportedHost && panelMode === 'preview' && previewItem"
+      v-if="panelMode === 'preview' && previewItem"
       standalone
       :item="previewItem"
       @close="closeWindow"
@@ -1046,7 +1014,7 @@ onBeforeUnmount(() => {
       @edit="editItem"
       @rename="renameItem"
     />
-    <p v-if="!unsupportedHost && isShelfMode" class="status" aria-live="polite">{{ status }}</p>
+    <p v-if="isShelfMode" class="status" aria-live="polite">{{ status }}</p>
   </main>
 </template>
 
@@ -1067,25 +1035,6 @@ onBeforeUnmount(() => {
   background-repeat: no-repeat;
   background-size: cover;
 }
-
-.host-upgrade-notice {
-  align-self: center;
-  justify-self: center;
-  display: grid;
-  max-width: 460px;
-  gap: 10px;
-  margin: 24px;
-  padding: 28px;
-  border: 1px solid var(--pb-line);
-  border-radius: 20px;
-  background: var(--pb-glass-strong);
-  box-shadow: 0 20px 48px var(--pb-shadow);
-  text-align: center;
-}
-
-.host-upgrade-notice > span { color: var(--pb-violet); font-size: 30px; font-weight: 850; }
-.host-upgrade-notice h1 { margin: 0; color: var(--pb-ink); font-size: 20px; }
-.host-upgrade-notice p { margin: 0; color: var(--pb-muted); font-size: 13px; line-height: 1.7; }
 
 .stage--panel {
   position: relative;

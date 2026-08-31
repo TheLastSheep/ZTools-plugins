@@ -248,16 +248,9 @@ function beginNativeFileDrag(event: DragEvent): void {
   // The nested <img> element has a browser-native drag behavior that exposes
   // its thumbnail URL. Always cancel that default payload; the host API below
   // supplies the original image/file as a native file drag instead.
-  const started = window.pasteboardPro?.startNativeFileDrag(props.item.id) === true;
-  if (started) {
-    event.preventDefault();
-    event.stopPropagation();
-    return;
-  }
-  // ZTools 2.4-3.1 do not provide startDrag. Leave the browser drag alive so
-  // the card never becomes a silent no-op; copy/paste and Quick Look remain
-  // the supported file actions on those hosts.
-  if (event.dataTransfer !== null) writeSourceDragData(props.item, event.dataTransfer);
+  window.pasteboardPro?.startNativeFileDrag(props.item.id);
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 const bodyText = computed(() => {

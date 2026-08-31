@@ -23,7 +23,6 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 - 使用端到端加密 WebDAV 同步正文、OCR、分组、图片、PDF 与外观配置。
 - 主题色、纯色背景和背景图片持久保存在插件本地；选图时不会上传，只有启用 WebDAV 后才进入加密同步。
 - 可从设置的隐私页清空全部剪贴板历史、插件自管附件和当前系统剪贴板。
-- ZTools 3.2 上使用宿主原生文件拖出与截图能力；ZTools 2.4–3.1 自动回退到既有拖动、复制和预览路径。
 
 ## 使用方式
 
@@ -40,11 +39,10 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 - Windows / Linux：支持历史捕获、搜索、分组、复制、直接粘贴、文件拖拽和系统文件预览；OCR 需要安装 Tesseract，图片旋转需要安装 ImageMagick。
 - ATools：使用 Svelte UI 与 ATools 原生 bridge。
 - ZTools：使用 Vue 3 UI、Electron preload；macOS 使用 Vision helper，Windows/Linux 使用系统安全存储和外部 Tesseract/ImageMagick 命令。
-- ZTools 2.4 是最低兼容版本；更低版本会显示升级提示，建议升级到最新版本获得完整体验。
 
 ## 隐私与同步
 
-- 历史和附件默认保存在宿主本地数据目录；ZTools 3.2 起附件优先使用插件专属 `pluginData`，并继续兼容旧目录中的既有数据。
+- 历史和附件默认保存在宿主本地数据目录。
 - 隐私规则在正文、OCR 和附件落盘前执行。
 - WebDAV record、blob 和 index 均经过端到端加密。
 - WebDAV 凭据与派生密钥不进入 renderer，本地密钥材料存放于系统钥匙串。

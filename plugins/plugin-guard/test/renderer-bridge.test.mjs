@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+test('renderer has no Node core import and bridge remains narrow',async()=>{const ui=await readFile(path.join(root,'src','ui','app.mjs'),'utf8'),preload=await readFile(path.join(root,'preload','index.cjs'),'utf8');assert.ok(!/node:|\.\.\/core\//.test(ui));assert.ok(!ui.includes('innerHTML'));assert.match(ui,/markdownText/);assert.match(preload,/Object\.freeze\(bridge\)/);assert.ok(!/require\(['\"]node:child_process/.test(preload));});

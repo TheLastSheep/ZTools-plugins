@@ -1,0 +1,14 @@
+{
+  "name": "plugin-guard",
+  "title": "插件安全体检",
+  "version": "0.1.0",
+  "description": "Read-only capability and risk scanner for ZTools plugins.",
+  "author": "harris",
+  "main": "dist/index.html",
+  "logo": "dist/logo.svg",
+  "preload": "dist/preload/index.cjs",
+  "platform": ["darwin", "win32", "linux"],
+  "categories": ["development", "system"],
+  "features": [{"code": "inspect-plugin", "explain": "Inspect a selected plugin folder without modifying it.", "icon": "logo.svg", "cmds": ["插件体检", "插件安全扫描"]}],
+  "development": {"main": "src/ui/index.html", "preload": "preload/index.cjs"}
+}

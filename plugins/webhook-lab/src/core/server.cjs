@@ -7,12 +7,12 @@ const MAX_JSON_DEPTH = 48, MAX_JSON_NODES = 2000;
 function routeToken() { return crypto.randomBytes(18).toString('base64url'); }
 function hostFor() { return '127.0.0.1'; }
 function hmac(body, secret, algorithm = 'sha256') {
-  if (!['sha256', 'sha512'].includes(algorithm)) throw Error('Unsupported HMAC algorithm');
-  if (Buffer.byteLength(String(body)) > MAX_BODY || Buffer.byteLength(String(secret)) > 8192) throw Error('HMAC input too large');
+  if (!['sha256', 'sha512'].includes(algorithm)) throw Error('不支持的 HMAC 算法');
+  if (Buffer.byteLength(String(body)) > MAX_BODY || Buffer.byteLength(String(secret)) > 8192) throw Error('HMAC 输入过大');
   return crypto.createHmac(algorithm, String(secret)).update(String(body)).digest('hex');
 }
 function curlFor(url, platform = process.platform) {
-  if (!/^http:\/\/127\.0\.0\.1:\d+\/[^']*$/.test(url)) throw Error('Only local listener URLs without single quotes are allowed');
+  if (!/^http:\/\/127\.0\.0\.1:\d+\/[^']*$/.test(url)) throw Error('仅允许不包含单引号的本地监听 URL');
   if (platform === 'win32') return `curl.exe -X POST '${url}' -H 'content-type: application/json' -d '{\"event\":\"test\"}'`;
   return `curl -X POST '${url}' -H 'content-type: application/json' -d '{"event":"test"}'`;
 }
@@ -22,7 +22,7 @@ function preview(body, contentType) {
   if (/application\/json/i.test(contentType)) {
     try {
       const parsed = JSON.parse(text);
-      if (!withinJsonLimit(parsed)) return { kind: 'text', value: '[JSON preview omitted: nesting limit]', truncated: true };
+      if (!withinJsonLimit(parsed)) return { kind: 'text', value: '[preview omitted: JSON nesting limit exceeded]', truncated: true };
       value = parsed; kind = 'json';
     } catch {}
   }

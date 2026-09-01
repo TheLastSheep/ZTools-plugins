@@ -18,7 +18,7 @@ function invoke(server, { path = '/safe', body = '', method = 'POST', headers = 
 
 test('bounded receiver and cleanup', async () => {
   const server = new WebhookServer({ token: 'safe' });
-  assert.equal((await invoke(server, { path: '/bad' })).status, 404);
+  const missing = await invoke(server, { path: '/bad' }); assert.equal(missing.status, 404); assert.equal(missing.body, '{"error":"unknown route"}');
   assert.equal((await invoke(server, { body: '{"ok":1}', headers: { 'content-type': 'application/json' } })).status, 202);
   let destroyed = false;
   server.sockets.add({ destroy() { destroyed = true; } }); server.server = { listening: false };
@@ -102,20 +102,37 @@ test('safe event copies hostile keys without prototype pollution', () => {
   preload.__testSetOwner({ events: [{ body: { value: JSON.parse('{"__proto__":{"polluted":true},"constructor":"safe","prototype":"safe"}') } }] });
   const value = preload.bridge({}).events()[0].body.value;
   assert.equal(Object.getPrototypeOf(value), null);
-  assert.equal(value.__proto__.polluted, true);
+  assert.equal(value['[reserved-key]'].polluted, true);
+  assert.equal(value['[reserved-key]#2'], 'safe');
+  assert.equal(value['[reserved-key]#3'], 'safe');
+  assert.equal(Object.hasOwn(value, '__proto__'), false);
+  assert.equal(Object.hasOwn(value, 'constructor'), false);
+  assert.equal(Object.hasOwn(value, 'prototype'), false);
   assert.equal({}.polluted, undefined);
+  preload.__testSetOwner(null);
+});
+test('safe event copying never executes accessors', () => {
+  const payload = Object.create(null);
+  Object.defineProperty(payload, 'visible', { value: 'ok', enumerable: true });
+  Object.defineProperty(payload, 'derived', { enumerable: true, get() { throw new Error('must not execute'); } });
+  preload.__testSetOwner({ events: [{ body: { value: payload } }] });
+  const value = preload.bridge({}).events()[0].body.value;
+  assert.equal(Object.getPrototypeOf(value), null);
+  assert.equal(value.visible, 'ok');
+  assert.equal(value.derived, '[redacted]');
   preload.__testSetOwner(null);
 });
 test('deep JSON is bounded before preview, bridge redaction, and renderer', () => {
   const json = `${'{"x":'.repeat(5000)}{"token":"secret"}${'}'.repeat(5000)}`;
-  assert.equal(preview(Buffer.from(json), 'application/json').kind, 'text');
+  const deepPreview = preview(Buffer.from(json), 'application/json');
+  assert.deepEqual(deepPreview, { kind: 'text', value: '[preview omitted: JSON nesting limit exceeded]', truncated: true });
   let value = { token: 'secret' }; for (let index = 0; index < 5000; index++) value = { child: value };
   preload.__testSetOwner({ events: [{ body: { kind: 'json', value } }] });
   const event = preload.bridge({}).events()[0];
   let cursor = event.body.value; for (let index = 0; index < 60 && cursor && typeof cursor === 'object'; index++) cursor = cursor.child;
   assert.equal(cursor, '[truncated]');
   const source = fs.readFileSync(require.resolve('../src/main/app.js'), 'utf8');
-  assert.match(source, /try\{return JSON\.stringify\(body\.value\)\.slice\(0,280\);\}catch/);
+  assert.match(source, /humanize\(JSON\.stringify\(body\.value\)\)\.slice\(0,280\)/);
   preload.__testSetOwner(null);
 });
 test('normal JSON stays renderable while secrets remain redacted', () => {
@@ -126,15 +143,18 @@ test('normal JSON stays renderable while secrets remain redacted', () => {
 });
 test('text payload leaves receive final credential-pattern redaction', async () => {
   const server = new WebhookServer({ token: 'safe' });
-  await invoke(server, { body: 'note=visible token=AKIA_SUPER_SECRET_VALUE_123456 Authorization: Bearer abcdefghijklmnop https://x.test/?signature=hidden', headers: { 'content-type': 'text/plain' } });
+  const privateKey = `-----BEGIN PRIVATE KEY-----\n${'A'.repeat(64)}\n-----END PRIVATE KEY-----`;
+  await invoke(server, { body: `note=visible token=AKIA_SUPER_SECRET_VALUE_123456 Authorization: Bearer abcdefghijklmnop https://x.test/?signature=hidden\n${privateKey}`, headers: { 'content-type': 'text/plain' } });
   preload.__testSetOwner(server);
   const text = preload.bridge({}).events()[0].body.value;
   assert.match(text, /note=visible/);
-  assert.doesNotMatch(text, /AKIA_SUPER_SECRET_VALUE_123456|abcdefghijklmnop|signature=hidden/);
+  assert.match(text, /\[redacted-private-key\]/);
+  assert.doesNotMatch(text, /AKIA_SUPER_SECRET_VALUE_123456|abcdefghijklmnop|signature=hidden|BEGIN PRIVATE KEY/);
   preload.__testSetOwner(null);
 });
-test('renderer uses DOM text and cross-platform curl is explicit', () => {
-  assert.equal(fs.readFileSync(require.resolve('../src/main/app.js'), 'utf8').includes('innerHTML'), false);
+test('renderer localizes every machine redaction token and cross-platform curl is explicit', () => {
+  const app = fs.readFileSync(require.resolve('../src/main/app.js'), 'utf8'); const html = fs.readFileSync(require.resolve('../src/main/index.html'), 'utf8');
+  assert.equal(app.includes('innerHTML'), false); assert.match(app, /\['\[redacted-private-key\]','【私钥已脱敏】'\]/); assert.match(app, /\['\[redacted\]','【已脱敏】'\]/); assert.match(app, /\['\[preview omitted: JSON nesting limit exceeded\]','【JSON 预览已省略：嵌套层级超限】'\]/); assert.match(app, /\['\[preview omitted: redacted output exceeds 64 KiB\]','【预览已省略：脱敏后的输出超过 64 KiB】'\]/); assert.match(app, /\$\('#secret'\)\.value=''/); assert.match(html, /id="secret" type="password"/);
   assert.equal(hmac('x', 's').length, 64); assert.equal(hmac('x', 's', 'sha512').length, 128); assert.throws(() => hmac('x', 's', 'md5'));
   for (const platform of ['win32', 'darwin', 'linux']) { assert.equal(hostFor('lan', platform), '127.0.0.1'); assert.match(curlFor('http://127.0.0.1:123/a', platform), /curl/); }
   assert.match(curlFor('http://127.0.0.1:123/a', 'win32'), /curl\.exe.*'http:\/\/127\.0\.0\.1:123\/a'/);

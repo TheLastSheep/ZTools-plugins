@@ -32,9 +32,10 @@ function storageError(operation, result) {
   return error
 }
 
-function createRepository(db, dataDir) {
+function createRepository(db, dataDir, options = {}) {
   const attachmentsDir = path.join(dataDir, 'attachments')
   const transfersDir = path.join(dataDir, 'transfers')
+  const attachmentRoots = [attachmentsDir, ...(options.attachmentRoots || []).map((root) => path.join(root, 'attachments'))]
   fs.mkdirSync(attachmentsDir, { recursive: true })
   fs.mkdirSync(transfersDir, { recursive: true })
 
@@ -108,8 +109,11 @@ function createRepository(db, dataDir) {
         const current = await this.get(`${MESSAGE_PREFIX}${id}`)
         for (const attachment of current?.attachments || []) {
           if (!attachment.path) continue
-          const relative = path.relative(attachmentsDir, path.resolve(attachment.path))
-          if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+          const isOwnedAttachment = attachmentRoots.some((root) => {
+            const relative = path.relative(root, path.resolve(attachment.path))
+            return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+          })
+          if (isOwnedAttachment) {
             try { await fs.promises.rm(attachment.path, { force: true }) } catch {}
           }
         }

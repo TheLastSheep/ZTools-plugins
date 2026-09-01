@@ -4,12 +4,28 @@
   "version": "0.1.0",
   "description": "离线 OpenAPI 兼容性台账与破坏性变更门禁。",
   "author": "harris",
-  "platform": ["darwin", "win32", "linux"],
-  "categories": ["development"],
+  "platform": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "categories": [
+    "development"
+  ],
   "main": "src/main/index.html",
   "preload": "src/preload/index.cjs",
   "logo": "logo.svg",
-  "features": [{ "code": "compare-openapi", "icon": "logo.svg", "platform": ["darwin", "win32", "linux"], "explain": "比较一到两个 OpenAPI 契约", "cmds": ["OpenAPI 对比", "API 契约门禁"] }],
+  "features": [
+    {
+      "code": "compare-openapi",
+      "icon": "logo.svg",
+      "explain": "比较一到两个 OpenAPI 契约",
+      "cmds": [
+        "OpenAPI 对比",
+        "API 契约门禁"
+      ]
+    }
+  ],
   "tools": {
     "compare_inline": {
       "title": "比较内联 OpenAPI 契约",
@@ -18,14 +34,39 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "before": { "type": "string", "maxLength": 327680 },
-          "after": { "type": "string", "maxLength": 327680 },
-          "format": { "type": "string", "enum": ["auto", "json", "yaml"] },
-          "includeMarkdown": { "type": "boolean" },
-          "offset": { "type": "integer", "minimum": 0 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+          "before": {
+            "type": "string",
+            "maxLength": 327680
+          },
+          "after": {
+            "type": "string",
+            "maxLength": 327680
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "json",
+              "yaml"
+            ]
+          },
+          "includeMarkdown": {
+            "type": "boolean"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
         },
-        "required": ["before", "after"]
+        "required": [
+          "before",
+          "after"
+        ]
       }
     },
     "compare_approved_files": {
@@ -35,9 +76,18 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "includeMarkdown": { "type": "boolean" },
-          "offset": { "type": "integer", "minimum": 0 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+          "includeMarkdown": {
+            "type": "boolean"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
         }
       }
     }

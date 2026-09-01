@@ -23,6 +23,7 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 - 使用端到端加密 WebDAV 同步正文、OCR、分组、图片、PDF 与外观配置。
 - 主题色、纯色背景和背景图片持久保存在插件本地；选图时不会上传，只有启用 WebDAV 后才进入加密同步。
 - 可从设置的隐私页清空全部剪贴板历史、插件自管附件和当前系统剪贴板。
+- ZTools 3.2 可从工具栏截图：Shelf 只写入系统剪贴板，再由主窗口唯一的历史监听器入库；插件会 best-effort 传入 `autoConfirm=false`，但当前公开的一参数 wrapper 可能忽略它，因此不能保证进入截图编辑态。截图区域尺寸也只在宿主实际回传时显示。ZTools 3.2 还支持将本地图片和文件原生拖到外部应用。
 
 ## 使用方式
 
@@ -39,6 +40,7 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 - Windows / Linux：支持历史捕获、搜索、分组、复制、直接粘贴、文件拖拽和系统文件预览；OCR 需要安装 Tesseract，图片旋转需要安装 ImageMagick。
 - ATools：使用 Svelte UI 与 ATools 原生 bridge。
 - ZTools：使用 Vue 3 UI、Electron preload；macOS 使用 Vision helper，Windows/Linux 使用系统安全存储和外部 Tesseract/ImageMagick 命令。
+- 最低支持 ZTools 2.4；2.4–3.1 保留旧数据目录与浏览器拖拽路径，3.2 起新附件写入宿主提供的插件专属 `pluginData` 目录。升级时不会同步复制旧附件，已有绝对路径记录仍可读取和清理。
 
 ## 隐私与同步
 
@@ -47,6 +49,7 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 - WebDAV record、blob 和 index 均经过端到端加密。
 - WebDAV 凭据与派生密钥不进入 renderer，本地密钥材料存放于系统钥匙串。
 - 搜索工具仅返回脱敏的结构化元数据，不把 OCR 正文写入 Agent 审计内容。
+- 附件清理只接受插件生成的内容寻址路径，并在删除前校验实际 SHA-256、`O_NOFOLLOW` 文件句柄、canonical 路径及 inode；校验异常时拒绝删除。Node.js 没有 `unlinkat`，因此这里不宣称能原子防御同一系统账号的恶意进程在最终 unlink 瞬间并发替换父目录。
 
 ## 技术实现
 

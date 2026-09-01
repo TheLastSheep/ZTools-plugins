@@ -63,9 +63,14 @@ const panelMode =
     ? panel
     : undefined;
 const isShelfMode = params.get("shelf") === "1";
+const hostCompatibility = window.pasteboardPro?.getHostCompatibility();
+const requiresHostUpgrade = hostCompatibility?.supported === false;
+const platformCapabilities = window.pasteboardPro?.getPlatformCapabilities();
 const shortcutPlatform = resolveShortcutPlatform(
-  window.pasteboardPro?.getPlatformCapabilities().platform,
+  platformCapabilities?.platform,
 );
+const supportsScreenCapture =
+  platformCapabilities?.supportsScreenCapture === true;
 const dockValue = params.get("dock");
 const edge: DockEdge =
   dockValue === "top" ||
@@ -85,6 +90,9 @@ const state = reactive(
 const pinboards = ref<Pinboard[]>([]);
 const query = ref("");
 const paused = ref(false);
+const canCaptureScreen = computed(
+  () => supportsScreenCapture && !paused.value,
+);
 const activePinboardId = ref<string>();
 const listOrders = ref<ListOrders>({});
 const listOrderSaving = ref(false);
@@ -520,6 +528,20 @@ async function togglePause(): Promise<void> {
   status.value = paused.value ? "剪贴板捕获已暂停" : "剪贴板捕获已继续";
 }
 
+async function captureScreen(): Promise<void> {
+  status.value = "正在截取屏幕…";
+  try {
+    const result = await window.pasteboardPro?.captureScreenshot();
+    if (result === undefined) throw new Error("当前 ZTools 版本不支持截图导入");
+    const bounds = result.bounds;
+    status.value = bounds === undefined
+      ? "截图已写入剪贴板，正在同步历史"
+      : `截图已写入剪贴板（${Math.round(bounds.width)} × ${Math.round(bounds.height)}），正在同步历史`;
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : "截图导入失败";
+  }
+}
+
 function onMirrored(event: Event): void {
   const detail = (event as CustomEvent<{ imported: number }>).detail;
   status.value = detail.imported > 0 ? `已导入 ${detail.imported} 条记录` : "历史已同步";
@@ -831,6 +853,7 @@ async function onWindowPreferencesChanged(): Promise<void> {
 }
 
 onMounted(async () => {
+  if (requiresHostUpgrade) return;
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("pasteboard-pro:paste-stack-changed", onPasteStackChanged);
   window.addEventListener(
@@ -938,10 +961,21 @@ onBeforeUnmount(() => {
     :style="themeStyle"
     :class="{
       'stage--panel': panelMode !== undefined,
-      'stage--primary': !isShelfMode && panelMode === undefined,
+      'stage--primary': !requiresHostUpgrade && !isShelfMode && panelMode === undefined,
       'stage--image-background': hasImageBackground,
     }"
   >
+    <section v-if="requiresHostUpgrade" class="upgrade-required" role="alert">
+      <img src="/logo.png" alt="" />
+      <h1>请升级 ZTools</h1>
+      <p>
+        Paste剪切板需要 ZTools {{ hostCompatibility?.minimumVersion ?? "2.4.0" }} 或更高版本。
+      </p>
+      <small v-if="hostCompatibility?.currentVersion">
+        当前版本：{{ hostCompatibility.currentVersion }}
+      </small>
+    </section>
+    <template v-else>
     <Shelf
       v-if="isShelfMode"
       :items="visibleItems"
@@ -957,6 +991,7 @@ onBeforeUnmount(() => {
       :paste-stack-count="state.pasteStack.itemIds.length"
       :paste-stack-direction="state.pasteStack.direction"
       :reorder-enabled="reorderEnabled"
+      :can-capture-screen="canCaptureScreen"
       @update:query="updateQuery"
       @select="selectItem"
       @paste="pasteItem"
@@ -975,6 +1010,7 @@ onBeforeUnmount(() => {
       @clear-stack="updatePasteStack({ type: 'clear' })"
       @open-privacy-settings="openPrivacySettings"
       @create-text="createTextItem"
+      @capture-screen="captureScreen"
       @edit-item="editItem"
       @rename-item="renameItem"
       @reorder="reorderVisibleItems"
@@ -1015,6 +1051,7 @@ onBeforeUnmount(() => {
       @rename="renameItem"
     />
     <p v-if="isShelfMode" class="status" aria-live="polite">{{ status }}</p>
+    </template>
   </main>
 </template>
 
@@ -1043,6 +1080,24 @@ onBeforeUnmount(() => {
   padding: 0;
   place-items: center;
 }
+
+.upgrade-required {
+  align-self: center;
+  justify-self: center;
+  width: min(420px, calc(100% - 32px));
+  padding: 28px;
+  border: 1px solid var(--pb-line);
+  border-radius: 20px;
+  background: var(--pb-glass-strong);
+  box-shadow: 0 24px 80px var(--pb-shadow);
+  color: var(--pb-ink);
+  text-align: center;
+}
+
+.upgrade-required img { width: 52px; height: 52px; border-radius: 14px; }
+.upgrade-required h1 { margin: 14px 0 8px; font-size: 22px; }
+.upgrade-required p { margin: 0; color: var(--pb-muted); line-height: 1.6; }
+.upgrade-required small { display: block; margin-top: 10px; color: var(--pb-muted); }
 
 .stage--image-background .shelf.glass-surface {
   background-color: var(--pb-theme-background-color, var(--pb-window-bg));

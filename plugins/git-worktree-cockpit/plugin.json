@@ -7,15 +7,26 @@
   "main": "index.html",
   "preload": "preload/services.cjs",
   "logo": "logo.svg",
-  "platform": ["darwin", "win32", "linux"],
-  "categories": ["development"],
-  "features": [{
-    "code": "git-worktree-cockpit-open",
-    "explain": "查看已授权 Git 仓库的工作树状态",
-    "icon": "logo.svg",
-    "platform": ["darwin", "win32", "linux"],
-    "cmds": ["查看 Git 工作树", "Git 工作树状态", "分支驾驶舱"]
-  }],
+  "platform": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "categories": [
+    "development"
+  ],
+  "features": [
+    {
+      "code": "git-worktree-cockpit-open",
+      "explain": "查看已授权 Git 仓库的工作树状态",
+      "icon": "logo.svg",
+      "cmds": [
+        "查看 Git 工作树",
+        "Git 工作树状态",
+        "分支驾驶舱"
+      ]
+    }
+  ],
   "tools": {
     "snapshot_approved": {
       "title": "读取已授权 Git 工作树快照",

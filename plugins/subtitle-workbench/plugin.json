@@ -7,15 +7,43 @@
   "main": "index.html",
   "preload": "preload/services.cjs",
   "logo": "logo.svg",
-  "platform": ["darwin", "win32", "linux"],
-  "categories": ["media", "text"],
-  "features": [{
-    "code": "subtitle-workbench-open",
-    "explain": "编辑、校对或转换一个字幕文件",
-    "icon": "logo.svg",
-    "platform": ["darwin", "win32", "linux"],
-    "cmds": ["字幕编辑", "SRT 转 VTT", "字幕校对", { "type": "files", "fileType": "file", "extensions": ["srt", "vtt", "mp4", "mov", "mkv", "mp3", "wav"], "minLength": 1, "maxLength": 1, "label": "打开一个字幕或媒体文件" }]
-  }],
+  "platform": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
+  "categories": [
+    "media",
+    "text"
+  ],
+  "features": [
+    {
+      "code": "subtitle-workbench-open",
+      "explain": "编辑、校对或转换一个字幕文件",
+      "icon": "logo.svg",
+      "cmds": [
+        "字幕编辑",
+        "SRT 转 VTT",
+        "字幕校对",
+        {
+          "type": "files",
+          "fileType": "file",
+          "extensions": [
+            "srt",
+            "vtt",
+            "mp4",
+            "mov",
+            "mkv",
+            "mp3",
+            "wav"
+          ],
+          "minLength": 1,
+          "maxLength": 1,
+          "label": "打开一个字幕或媒体文件"
+        }
+      ]
+    }
+  ],
   "tools": {
     "analyze": {
       "title": "分析内联字幕",
@@ -24,21 +52,52 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "content": { "type": "string", "maxLength": 524288 },
-          "format": { "type": "string", "enum": ["srt", "vtt"] },
+          "content": {
+            "type": "string",
+            "maxLength": 524288
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt"
+            ]
+          },
           "thresholds": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "minDuration": { "type": "integer", "minimum": 0, "maximum": 60000 },
-              "maxDuration": { "type": "integer", "minimum": 1, "maximum": 600000 },
-              "maxCharsPerSecond": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 }
+              "minDuration": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "maxDuration": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600000
+              },
+              "maxCharsPerSecond": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              }
             }
           },
-          "offset": { "type": "integer", "minimum": 0 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
         },
-        "required": ["content", "format"]
+        "required": [
+          "content",
+          "format"
+        ]
       }
     },
     "transform": {
@@ -48,16 +107,59 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "content": { "type": "string", "maxLength": 524288 },
-          "format": { "type": "string", "enum": ["srt", "vtt"] },
-          "operation": { "type": "string", "enum": ["shift", "speed", "fps", "convert"] },
-          "milliseconds": { "type": "integer", "minimum": -86400000, "maximum": 86400000 },
-          "speed": { "type": "number", "minimum": 0.1, "maximum": 10 },
-          "sourceFps": { "type": "number", "minimum": 1, "maximum": 240 },
-          "targetFps": { "type": "number", "minimum": 1, "maximum": 240 },
-          "outputFormat": { "type": "string", "enum": ["srt", "vtt"] }
+          "content": {
+            "type": "string",
+            "maxLength": 524288
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "shift",
+              "speed",
+              "fps",
+              "convert"
+            ]
+          },
+          "milliseconds": {
+            "type": "integer",
+            "minimum": -86400000,
+            "maximum": 86400000
+          },
+          "speed": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10
+          },
+          "sourceFps": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "targetFps": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "outputFormat": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt"
+            ]
+          }
         },
-        "required": ["content", "format", "operation"]
+        "required": [
+          "content",
+          "format",
+          "operation"
+        ]
       }
     },
     "analyze_approved_file": {
@@ -71,13 +173,32 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "minDuration": { "type": "integer", "minimum": 0, "maximum": 60000 },
-              "maxDuration": { "type": "integer", "minimum": 1, "maximum": 600000 },
-              "maxCharsPerSecond": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 }
+              "minDuration": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "maxDuration": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600000
+              },
+              "maxCharsPerSecond": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              }
             }
           },
-          "offset": { "type": "integer", "minimum": 0 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
         }
       }
     }

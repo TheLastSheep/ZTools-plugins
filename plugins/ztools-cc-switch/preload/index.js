@@ -1,5 +1,15 @@
 'use strict'
 
+const { getHostCompatibility } = require('./ztoolsCompatibility')
+const hostCompatibility = getHostCompatibility(typeof window === 'undefined' ? undefined : window.ztools)
+
+// Fail closed before loading manager modules, touching user data, scheduling
+// maintenance or restoring routes. Browser-only Vite previews have no ZTools
+// bridge and continue to use the existing UI preview path.
+if (!hostCompatibility.supported) {
+  window.ccSwitch = Object.freeze({ getHostCompatibility: () => hostCompatibility })
+} else {
+
 /**
  * ZTools Preload 能力桥。
  * 前端只拿到经过校验的业务方法，不直接暴露 fs/path 等 Node.js 原语。
@@ -43,6 +53,7 @@ const { createLogManager } = require('./logManager')
 const { createFailoverManager } = require('./failoverManager')
 const { createClientVisibilityManager } = require('./clientVisibility')
 const { createRouteLifecycleManager } = require('./routeLifecycleManager')
+const { resolveSidecarRuntimeDir } = require('./ztoolsCompatibility')
 
 function resolveDataDir() {
   try {
@@ -68,7 +79,11 @@ function getDefaultDataDir() {
   return path.join(process.env.HOME || process.env.USERPROFILE, '.ztools', 'cc-switch')
 }
 const bundledRulesPath = path.join(__dirname, '..', 'default-rules.json')
-const sidecar = createSidecarClient({ extractDir: path.join(getDefaultDataDir(), 'runtime', 'sidecar') })
+// Only the ASAR-extracted sidecar is recreated data. Keep all Provider files,
+// overrides and encrypted credentials in the established dataDir so a 3.2 ->
+// 3.1 downgrade never loses or re-encrypts user data.
+const sidecarRuntime = resolveSidecarRuntimeDir(window.ztools, getDefaultDataDir())
+const sidecar = createSidecarClient({ extractDir: sidecarRuntime.path })
 let authManager = null
 function createZtoolsStorage() {
   const candidate = window.ztools && window.ztools.dbStorage
@@ -174,6 +189,35 @@ const toolRuntimeManager = createToolRuntimeManager({ homeDir: configManager.get
 const providerTerminalManager = createProviderTerminalManager({ homeDir: configManager.getHomeDir() })
 const universalProviderManager = createUniversalProviderManager({ dataDir, configManager, storage: ztoolsStorage, secretCodec })
 const hostStartupManager = createHostStartupManager({ storage: ztoolsStorage, getRouterStatus: () => routerManager.status(), startRouter: () => routerManager.start() })
+const enterFlights = new Map()
+const dragExportPaths = new Map()
+const DRAG_EXPORT_TTL_MS = 5 * 60 * 1000
+
+function rememberDragExport(filePath) {
+  const realPath = fs.realpathSync(filePath)
+  dragExportPaths.clear()
+  dragExportPaths.set(realPath, Date.now() + DRAG_EXPORT_TTL_MS)
+}
+
+function consumeDragExport(filePath) {
+  const realPath = fs.realpathSync(filePath)
+  const expiresAt = dragExportPaths.get(realPath)
+  if (!expiresAt || expiresAt < Date.now() || !fs.statSync(realPath).isFile()) {
+    dragExportPaths.delete(realPath)
+    return null
+  }
+  dragExportPaths.delete(realPath)
+  return realPath
+}
+
+function oncePerEnter(name, task) {
+  if (enterFlights.has(name)) return enterFlights.get(name)
+  const flight = Promise.resolve().then(task)
+  enterFlights.set(name, flight)
+  const clear = () => { if (enterFlights.get(name) === flight) enterFlights.delete(name) }
+  flight.then(clear, clear)
+  return flight
+}
 
 function findDeepLink(value, depth = 0) {
   if (depth > 3 || value === null || value === undefined) return null
@@ -434,7 +478,11 @@ window.ccSwitch = Object.freeze({
     if (Array.isArray(result)) return result[0] || null
     return result?.canceled ? null : result?.filePaths?.[0] || null
   },
-  exportBackup: (destination, options) => backupManager.exportBackup(destination, options || {}),
+  exportBackup: async (destination, options) => {
+    const result = await backupManager.exportBackup(destination, options || {})
+    rememberDragExport(result.path)
+    return result
+  },
   importBackup: (source) => backupManager.importBackup(source),
   getWebdavConfig: () => webdavSync.getConfig(),
   saveWebdavConfig: (patch) => webdavSync.saveConfig(patch || {}),
@@ -624,8 +672,20 @@ window.ccSwitch = Object.freeze({
   getRuntimeInfo: async () => ({
     dataDir,
     homeDir: configManager.getHomeDir(),
+    sidecarRuntimeDir: sidecarRuntime.path,
+    sidecarUsesPluginData: sidecarRuntime.usingPluginData,
     sidecar: await sidecar.getStatus()
   }),
+  getHostCompatibility: () => getHostCompatibility(window.ztools),
+  startDrag: async (filePath) => {
+    if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || typeof window.ztools?.startDrag !== 'function') return false
+    try {
+      const realPath = consumeDragExport(filePath)
+      if (!realPath) return false
+      window.ztools.startDrag(realPath)
+      return true
+    } catch { return false }
+  },
   getHostStartupSettings: () => hostStartupManager.getSettings(),
   saveHostStartupSettings: (patch) => hostStartupManager.saveSettings(patch || {})
 })
@@ -640,10 +700,18 @@ if (window.ztools && typeof window.ztools.onPluginEnter === 'function') {
         .catch((error) => window.dispatchEvent(new CustomEvent('cc-switch:deeplink-error', { detail: { message: error.message } })))
     }
     const config = webdavSync.getConfig()
-    if (config.autoSync && config.hasPassword && config.url) webdavSync.sync().catch(() => {})
+    if (config.autoSync && config.hasPassword && config.url) oncePerEnter('webdav-sync', () => webdavSync.sync()).catch(() => {})
     const s3Config = s3Sync.getConfig()
-    if (s3Config.enabled && s3Config.autoSync && s3Config.hasSecretAccessKey) s3Sync.sync().catch(() => {})
-    if (hostStartupManager.getSettings().restoreOnPluginEnter) hostStartupManager.restoreRouter().catch((error) => console.warn('[cc-switch] ZTools 进入时恢复路由失败:', error.message))
+    if (s3Config.enabled && s3Config.autoSync && s3Config.hasSecretAccessKey) oncePerEnter('s3-sync', () => s3Sync.sync()).catch(() => {})
+    if (hostStartupManager.getSettings().restoreOnPluginEnter) oncePerEnter('restore-router', () => hostStartupManager.restoreRouter()).catch((error) => console.warn('[cc-switch] ZTools 进入时恢复路由失败:', error.message))
+  })
+}
+
+if (window.ztools && typeof window.ztools.onPluginOut === 'function') {
+  window.ztools.onPluginOut(() => {
+    // 3.2 hides the same renderer. Do not stop the router or recreate the
+    // sidecar here; the app-level tasks remain single-flight on the next enter.
+    window.dispatchEvent(new CustomEvent('cc-switch:out'))
   })
 }
 
@@ -663,3 +731,4 @@ setTimeout(() => {
 }, 3000)
 
 console.info('[cc-switch] preload ready')
+}

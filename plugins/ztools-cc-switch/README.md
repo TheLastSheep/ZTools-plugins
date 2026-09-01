@@ -1,5 +1,12 @@
 # AI Provider Switch for ZTools
 
+## ZTools 3.2 与旧版兼容
+
+- 3.2 使用 `ztools.getPath('pluginData')` 仅保存可重建的 Rust sidecar 运行时；Provider、备份、用户目录覆盖与安全存储凭据继续使用既有数据目录，降级到 2.4–3.1 不会迁移或丢失密钥。
+- 导出的备份在 3.2 可调用 `startDrag` 拖往外部应用；旧版保持原保存对话框流程。
+- ESC 隐藏只关闭临时弹窗；路由、sidecar 与同步任务保持单例，并在再次进入时用 single-flight 恢复。
+- 低于 ZTools 2.4 仅显示升级提示。
+
 版本变更请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
 一个基于 Vue 3、Vite、TailwindCSS 与 Rust sidecar 的 ZTools AI 客户端管理插件。对照 [cc-switch](https://github.com/farion1231/cc-switch) 的公开配置语义，统一管理 Provider、Skills、本地 API 路由、Thinking 整流、用量与请求日志。

@@ -2,6 +2,14 @@
 
 ZTools 图片批处理插件，提供面向图片文件、PDF 文件和文件夹入口的批量处理能力，支持 macOS 与 Windows。
 
+## ZTools 兼容性
+
+- ZTools 3.2.0：支持截图导入、输出文件外拖，Sharp runtime 优先使用插件专属 `pluginData`。
+- 外拖仅接受最近 5 分钟内由当前处理任务成功生成的普通文件，授权单次消费，不接受任意绝对路径。
+- ZTools 2.4–3.1：继续从原 `userData` runtime 运行，保留文件导入和打开目录流程。
+- runtime 迁移只复制、不删除旧目录，便于用户回退宿主版本。
+- 低于 2.4.0，或真实 ZTools 宿主无法提供可比较版本号：显示升级提示。仅未注入 `window.ztools` 的浏览器开发预览放行。
+
 ## 界面截图
 
 ![图片批处理插件界面](./screenshots/main.jpg)

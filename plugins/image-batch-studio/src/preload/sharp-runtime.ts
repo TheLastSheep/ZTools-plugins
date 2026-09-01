@@ -37,6 +37,17 @@ let configCache: RuntimeConfig | undefined;
 let sharpFactory: SharpFactory | undefined;
 let installPromise: Promise<SharpRuntimeStatus> | undefined;
 
+function directoriesMatch(source: string, destination: string): boolean {
+  const sourceStat = fsSync.statSync(source);
+  const destinationStat = fsSync.statSync(destination);
+  if (sourceStat.isDirectory() !== destinationStat.isDirectory()) return false;
+  if (!sourceStat.isDirectory()) return sourceStat.size === destinationStat.size;
+  const sourceNames = fsSync.readdirSync(source).sort();
+  const destinationNames = fsSync.readdirSync(destination).sort();
+  if (sourceNames.length !== destinationNames.length || sourceNames.some((name, index) => name !== destinationNames[index])) return false;
+  return sourceNames.every((name) => directoriesMatch(path.join(source, name), path.join(destination, name)));
+}
+
 function configPath(): string {
   const packaged = path.join(__dirname, "sharp-runtime-targets.json");
   return fsSync.existsSync(packaged)
@@ -66,8 +77,30 @@ export function selectSharpRuntimeTarget(
 function userDataPath(): string {
   if (process.env.IMAGE_BATCH_RUNTIME_ROOT) return process.env.IMAGE_BATCH_RUNTIME_ROOT;
   const ztools = typeof window !== "undefined" ? (window as any).ztools : undefined;
+  let legacyRoot: string | undefined;
   if (ztools?.getPath) {
-    return path.join(ztools.getPath("userData"), "image-batch-studio", "runtime");
+    try { legacyRoot = path.join(ztools.getPath("userData"), "image-batch-studio", "runtime"); } catch {}
+    try {
+      const pluginData = ztools.getPath("pluginData");
+      if (pluginData) {
+        const root = path.join(pluginData, "runtime");
+        const marker = path.join(pluginData, ".image-batch-runtime-migration-v1.json");
+        if (fsSync.existsSync(marker)) {
+          if (fsSync.existsSync(root) || !legacyRoot || !fsSync.existsSync(legacyRoot)) return root;
+          return legacyRoot;
+        }
+        if (legacyRoot && fsSync.existsSync(legacyRoot)) {
+          fsSync.mkdirSync(path.dirname(root), { recursive: true });
+          fsSync.cpSync(legacyRoot, root, { recursive: true, force: false, errorOnExist: false });
+          if (!directoriesMatch(legacyRoot, root)) return legacyRoot;
+          fsSync.writeFileSync(marker, JSON.stringify({ version: 1, source: legacyRoot, destination: root, copiedAt: new Date().toISOString() }));
+        }
+        return root;
+      }
+    } catch {
+      if (legacyRoot) return legacyRoot;
+    }
+    if (legacyRoot) return legacyRoot;
   }
   return path.join(os.tmpdir(), "image-batch-studio-runtime");
 }

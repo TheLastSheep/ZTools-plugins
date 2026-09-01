@@ -2,6 +2,13 @@
 
 面向 ZTools 的本地批量格式转换中心。支持 Word、Excel、PowerPoint、PDF、图片、文本和常见数据格式，并明确区分视觉保真、可编辑重建和内容提取三类路线。
 
+## ZTools 兼容性
+
+- ZTools 3.2.0：支持截图导入、转换输出外拖，并将可重建 runtime 优先放入 `pluginData`。
+- ZTools 2.4–3.1：继续使用原 `userData` runtime、文件选择和打开目录流程。
+- runtime 迁移为复制后保留旧目录，不会在升级时删除旧数据，支持临时降级宿主。
+- 低于 2.4.0，或真实 ZTools 宿主无法提供可比较版本号：显示升级提示。仅未注入 `window.ztools` 的浏览器开发预览放行。
+
 ## 首发范围
 
 - 图片：PNG、JPEG、WebP、AVIF、TIFF、GIF、BMP 的读取与常见格式输出。

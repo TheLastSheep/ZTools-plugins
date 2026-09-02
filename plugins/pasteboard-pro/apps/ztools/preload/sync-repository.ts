@@ -233,6 +233,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
       "blobs",
     ),
     private readonly legacyBlobRoots: readonly string[] = [],
+    private readonly ready: Promise<void> = Promise.resolve(),
   ) {
     this.clipboard = new ZToolsCanonicalClipboardStore(database, { deviceId });
     this.pinboards = new ZToolsPinboardStore(database, { deviceId });
@@ -257,6 +258,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   }
 
   async listEntities(): Promise<SyncEntity[]> {
+    await this.ready;
     const preferences = await this.preferences.getSyncEntity();
     const entities: SyncEntity[] = [
       ...(await this.clipboard.listRecords()).map((record) => record.item),
@@ -323,6 +325,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   }
 
   async applyEntities(entities: readonly SyncEntity[]): Promise<void> {
+    await this.ready;
     for (const entity of entities) {
       if ("deleted" in entity) {
         if (entity.entityType === "paste_item") {
@@ -344,6 +347,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   }
 
   async readBlob(blobId: string): Promise<SyncBlob | undefined> {
+    await this.ready;
     const record = (await this.clipboard.listRecords()).find(
       (candidate) => candidate.item.payload.blobId === blobId,
     );
@@ -373,6 +377,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
     bytes: Uint8Array,
     mediaType: string,
   ): Promise<Readonly<{ id: string; imagePath: string; blobBytes: number }>> {
+    await this.ready;
     if (bytes.byteLength > MAX_BLOB_BYTES) {
       throw new RangeError("Blob exceeds 100 MiB");
     }
@@ -386,6 +391,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   }
 
   async deleteLocalBlob(input: Readonly<{ blobId: string; filePath: string }>): Promise<void> {
+    await this.ready;
     assertBlobIdentifier(input.blobId);
     const filePath = path.resolve(input.filePath);
     const managedRoots = [this.blobRoot, ...this.legacyBlobRoots].map((root) => path.resolve(root));
@@ -495,6 +501,7 @@ export class ZToolsSyncEntityRepository implements SyncEntityRepository {
   }
 
   async writeBlob(blob: SyncBlob): Promise<void> {
+    await this.ready;
     if (blob.bytes.byteLength > MAX_BLOB_BYTES) {
       throw new RangeError(`Blob ${blob.id} exceeds 100 MiB`);
     }

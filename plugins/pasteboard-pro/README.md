@@ -40,7 +40,7 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 - Windows / Linux：支持历史捕获、搜索、分组、复制、直接粘贴、文件拖拽和系统文件预览；OCR 需要安装 Tesseract，图片旋转需要安装 ImageMagick。
 - ATools：使用 Svelte UI 与 ATools 原生 bridge。
 - ZTools：使用 Vue 3 UI、Electron preload；macOS 使用 Vision helper，Windows/Linux 使用系统安全存储和外部 Tesseract/ImageMagick 命令。
-- 最低支持 ZTools 2.4；2.4–3.1 保留旧数据目录与浏览器拖拽路径，3.2 起新附件写入宿主提供的插件专属 `pluginData` 目录。升级时不会同步复制旧附件，已有绝对路径记录仍可读取和清理。
+- 最低支持 ZTools 2.4；2.4–3.1 使用旧数据目录与浏览器拖拽路径。3.2 首次启动会校验迁移旧附件并重写数据库路径，完成后删除旧目录，之后仅使用宿主提供的插件专属 `pluginData`。
 
 ## 隐私与同步
 

@@ -20,6 +20,7 @@ import {
   inspectHostCompatibility,
   type ZToolsHostCompatibility,
 } from "./host-compatibility";
+import { migratePasteboardProPluginData } from "./plugin-data-migration";
 import { resolvePasteboardProDataPaths } from "./plugin-data";
 import {
   importScreenCapture,
@@ -254,8 +255,14 @@ const windowRole = clipboardWindowRole(windowParams);
 const isShelfWindow = windowRole === "shelf";
 const isPanelWindow = windowRole === "panel";
 const isPrimaryWindow = windowRole === "primary";
+const dataPaths = resolvePasteboardProDataPaths(ztools);
+const dataMigration = isPrimaryWindow
+  ? migratePasteboardProPluginData(ztools.db.promises, dataPaths)
+  : Promise.resolve();
+dataMigration.catch((error) => console.error("[pasteboard-pro] pluginData migration failed", error));
 const store = new ZToolsCanonicalClipboardStore(ztools.db.promises, {
   deviceId: ztools.getNativeId(),
+  ready: dataMigration,
 });
 const privacyStore = new ZToolsPrivacySettingsStore(ztools.db.promises);
 const windowPreferencesStore = new ZToolsWindowPreferencesStore(ztools.db.promises, {
@@ -284,12 +291,12 @@ const keychain =
           database: ztools.db.promises,
           safeStorage,
         });
-const dataPaths = resolvePasteboardProDataPaths(ztools);
 const syncRepository = new ZToolsSyncEntityRepository(
   ztools.db.promises,
   ztools.getNativeId(),
   dataPaths.blobRoot,
   dataPaths.legacyBlobRoots,
+  dataMigration,
 );
 const shelfWindows = new ShelfWindowManager(ztools);
 const panelWindows = new PanelWindowManager(ztools);

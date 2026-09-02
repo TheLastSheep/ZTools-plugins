@@ -104,15 +104,13 @@ test('database read failures are not mistaken for missing records', async (conte
   await assert.rejects(repository.listDevices(), (error) => error.code === 'DEVICE_LINK_STORAGE_FAILED')
 })
 
-test('history cleanup removes current and legacy attachments but never unrelated files', async (context) => {
+test('history cleanup removes pluginData attachments but never files outside the managed root', async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'device-link-attachment-roots-'))
   context.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const pluginData = path.join(root, 'plugin-data')
-  const legacyData = path.join(root, 'legacy-data')
   const currentAttachment = path.join(pluginData, 'attachments', 'current.txt')
-  const legacyAttachment = path.join(legacyData, 'attachments', 'legacy.txt')
   const unrelatedFile = path.join(root, 'unrelated.txt')
-  for (const file of [currentAttachment, legacyAttachment, unrelatedFile]) {
+  for (const file of [currentAttachment, unrelatedFile]) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, 'fixture')
   }
@@ -123,7 +121,6 @@ test('history cleanup removes current and legacy attachments but never unrelated
     id: 'cleanup',
     attachments: [
       { path: currentAttachment },
-      { path: legacyAttachment },
       { path: unrelatedFile },
     ],
   }
@@ -133,10 +130,9 @@ test('history cleanup removes current and legacy attachments but never unrelated
     async get(id) { return id === message._id && !removed ? message : null },
     async put() {},
     async remove() { removed = true },
-  }, pluginData, { attachmentRoots: [legacyData] })
+  }, pluginData)
 
   assert.equal(await repository.removeMessage('cleanup', { removeOwnedAttachments: true }), true)
   assert.equal(fs.existsSync(currentAttachment), false)
-  assert.equal(fs.existsSync(legacyAttachment), false)
   assert.equal(fs.existsSync(unrelatedFile), true)
 })

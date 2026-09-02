@@ -10,6 +10,7 @@ const { saveAttachmentFile } = require('./core/attachment')
 const { createCredentialStorage } = require('./core/credential-storage')
 const { resolveDroppedFilePaths } = require('./core/drop')
 const { detectHostCompatibility, resolveDataDirectories } = require('./core/host-compat')
+const { EARLY_KEY_FALLBACK_DIR, preparePluginDataMigration } = require('./core/plugin-data-migration')
 const { clearMessageHistory, removeMessageFromHistory } = require('./core/history')
 const { createRepository } = require('./core/repository')
 const { CHUNK_SIZE, createDeviceLinkServer } = require('./core/server')
@@ -32,10 +33,14 @@ if (hostCompatibility.requiresUpgrade) {
   // when an older/invalid host lacks APIs used by the full service layer.
   window.deviceLink = Object.freeze({})
 } else {
-const { dataDir, legacyDataDir } = resolveDataDirectories(ztools)
+const resolvedDirectories = resolveDataDirectories(ztools)
+const legacyDataDir = resolvedDirectories.legacyDataDir
+const migration = preparePluginDataMigration(ztools.db.promises, resolvedDirectories.dataDir, legacyDataDir)
+migration.ready.catch((error) => console.error('[device-link] pluginData migration failed', error))
+const dataDir = migration.dataDir
 fs.mkdirSync(dataDir, { recursive: true })
 
-const repository = createRepository(ztools.db.promises, dataDir, { attachmentRoots: [legacyDataDir] })
+const repository = createRepository(ztools.db.promises, dataDir, { ready: migration.ready })
 let server = null
 const SHARED_CONVERSATION_ID = 'shared'
 
@@ -81,11 +86,8 @@ const { seal, unseal } = createCredentialStorage({
   dataDir,
   safeStorage,
   legacyKey: fallbackKey(),
-  // Use the 2.4–3.1 key path as the local:v2 write key, so a downgrade can
-  // decrypt new credentials. Keep pluginData as a read-only fallback for
-  // credentials written by early 3.2 builds before this compatibility fix.
-  localKeyDataDir: legacyDataDir,
-  fallbackLocalKeyDataDirs: dataDir === legacyDataDir ? [] : [dataDir],
+  localKeyDataDir: dataDir,
+  fallbackLocalKeyDataDirs: dataDir === legacyDataDir ? [] : [path.join(dataDir, EARLY_KEY_FALLBACK_DIR)],
 })
 
 async function getSettingsRecord() {

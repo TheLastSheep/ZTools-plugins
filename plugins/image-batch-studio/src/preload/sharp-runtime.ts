@@ -38,10 +38,15 @@ let sharpFactory: SharpFactory | undefined;
 let installPromise: Promise<SharpRuntimeStatus> | undefined;
 
 function directoriesMatch(source: string, destination: string): boolean {
-  const sourceStat = fsSync.statSync(source);
-  const destinationStat = fsSync.statSync(destination);
+  const sourceStat = fsSync.lstatSync(source);
+  const destinationStat = fsSync.lstatSync(destination);
+  if (sourceStat.isSymbolicLink() || destinationStat.isSymbolicLink()) return false;
   if (sourceStat.isDirectory() !== destinationStat.isDirectory()) return false;
-  if (!sourceStat.isDirectory()) return sourceStat.size === destinationStat.size;
+  if (!sourceStat.isDirectory()) {
+    return sourceStat.size === destinationStat.size
+      && crypto.createHash("sha256").update(fsSync.readFileSync(source)).digest("hex")
+        === crypto.createHash("sha256").update(fsSync.readFileSync(destination)).digest("hex");
+  }
   const sourceNames = fsSync.readdirSync(source).sort();
   const destinationNames = fsSync.readdirSync(destination).sort();
   if (sourceNames.length !== destinationNames.length || sourceNames.some((name, index) => name !== destinationNames[index])) return false;
@@ -74,35 +79,43 @@ export function selectSharpRuntimeTarget(
   return config.targets.find((target) => target.platform === platform && target.arch === arch);
 }
 
+export function resolveSharpRuntimeRoot(
+  ztools: { getPath?: (name: string) => string } | undefined,
+  legacyRoot: string | undefined,
+): string {
+  if (!ztools?.getPath) return legacyRoot ?? path.join(os.tmpdir(), "image-batch-studio-runtime");
+  let root: string | undefined;
+  try {
+    const pluginData = ztools.getPath("pluginData");
+    if (!pluginData) return legacyRoot ?? path.join(os.tmpdir(), "image-batch-studio-runtime");
+    root = path.join(pluginData, "runtime");
+    const marker = path.join(pluginData, ".image-batch-runtime-migration-v2.json");
+    if (legacyRoot && fsSync.existsSync(legacyRoot)) {
+      fsSync.mkdirSync(path.dirname(root), { recursive: true });
+      if (!fsSync.existsSync(root)) {
+        fsSync.cpSync(legacyRoot, root, { recursive: true, force: false, errorOnExist: false });
+      }
+      if (!directoriesMatch(legacyRoot, root)) return legacyRoot;
+      fsSync.rmSync(legacyRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      if (fsSync.existsSync(legacyRoot)) return legacyRoot;
+      try { fsSync.rmdirSync(path.dirname(legacyRoot)); } catch {}
+    }
+    fsSync.mkdirSync(pluginData, { recursive: true });
+    fsSync.writeFileSync(marker, JSON.stringify({ version: 2, destination: root, completedAt: new Date().toISOString() }));
+    return root;
+  } catch {
+    if (legacyRoot && fsSync.existsSync(legacyRoot)) return legacyRoot;
+    if (root && fsSync.existsSync(root)) return root;
+    return legacyRoot ?? path.join(os.tmpdir(), "image-batch-studio-runtime");
+  }
+}
+
 function userDataPath(): string {
   if (process.env.IMAGE_BATCH_RUNTIME_ROOT) return process.env.IMAGE_BATCH_RUNTIME_ROOT;
   const ztools = typeof window !== "undefined" ? (window as any).ztools : undefined;
   let legacyRoot: string | undefined;
-  if (ztools?.getPath) {
-    try { legacyRoot = path.join(ztools.getPath("userData"), "image-batch-studio", "runtime"); } catch {}
-    try {
-      const pluginData = ztools.getPath("pluginData");
-      if (pluginData) {
-        const root = path.join(pluginData, "runtime");
-        const marker = path.join(pluginData, ".image-batch-runtime-migration-v1.json");
-        if (fsSync.existsSync(marker)) {
-          if (fsSync.existsSync(root) || !legacyRoot || !fsSync.existsSync(legacyRoot)) return root;
-          return legacyRoot;
-        }
-        if (legacyRoot && fsSync.existsSync(legacyRoot)) {
-          fsSync.mkdirSync(path.dirname(root), { recursive: true });
-          fsSync.cpSync(legacyRoot, root, { recursive: true, force: false, errorOnExist: false });
-          if (!directoriesMatch(legacyRoot, root)) return legacyRoot;
-          fsSync.writeFileSync(marker, JSON.stringify({ version: 1, source: legacyRoot, destination: root, copiedAt: new Date().toISOString() }));
-        }
-        return root;
-      }
-    } catch {
-      if (legacyRoot) return legacyRoot;
-    }
-    if (legacyRoot) return legacyRoot;
-  }
-  return path.join(os.tmpdir(), "image-batch-studio-runtime");
+  try { legacyRoot = path.join(ztools.getPath("userData"), "image-batch-studio", "runtime"); } catch {}
+  return resolveSharpRuntimeRoot(ztools, legacyRoot);
 }
 
 function targetRoot(config: RuntimeConfig, target: RuntimeTargetConfig): string {

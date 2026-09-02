@@ -38,6 +38,21 @@ test("runtime migration copy verifies its complete directory before writing a ma
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test("runtime migration removes the verified userData copy", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "format-host-compat-move-"));
+  try {
+    const pluginData = path.join(base, "plugin-data");
+    const legacy = path.join(base, "legacy");
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, "runtime.bin"), "runtime");
+    const resolved = runtimeRoot({ getPath: () => pluginData }, legacy);
+    assert.equal(resolved.root, path.join(pluginData, "runtime", "v1"));
+    assert.equal(resolved.migrated, true);
+    assert.equal(fs.existsSync(legacy), false);
+    assert.equal(fs.existsSync(path.join(pluginData, ".format-converter-runtime-migration-v2.json")), true);
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 test("runtime migration keeps using legacy data when an unverified destination already exists", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "format-host-compat-partial-"));
   try {
@@ -52,6 +67,6 @@ test("runtime migration keeps using legacy data when an unverified destination a
     const resolved = runtimeRoot({ getPath: () => pluginData }, legacy);
     assert.equal(resolved.root, legacy);
     assert.equal(resolved.modern, false);
-    assert.equal(fs.existsSync(path.join(pluginData, ".format-converter-runtime-migration-v1.json")), false);
+    assert.equal(fs.existsSync(path.join(pluginData, ".format-converter-runtime-migration-v2.json")), false);
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });

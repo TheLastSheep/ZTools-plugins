@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const MINIMUM_VERSION = "2.4.0";
 
@@ -49,10 +50,15 @@ function copyDirectory(source, destination) {
 }
 
 function directoriesMatch(source, destination) {
-  const sourceStat = fs.statSync(source);
-  const destinationStat = fs.statSync(destination);
+  const sourceStat = fs.lstatSync(source);
+  const destinationStat = fs.lstatSync(destination);
+  if (sourceStat.isSymbolicLink() || destinationStat.isSymbolicLink()) return false;
   if (sourceStat.isDirectory() !== destinationStat.isDirectory()) return false;
-  if (!sourceStat.isDirectory()) return sourceStat.size === destinationStat.size;
+  if (!sourceStat.isDirectory()) {
+    return sourceStat.size === destinationStat.size
+      && crypto.createHash("sha256").update(fs.readFileSync(source)).digest("hex")
+        === crypto.createHash("sha256").update(fs.readFileSync(destination)).digest("hex");
+  }
   const sourceNames = fs.readdirSync(source).sort();
   const destinationNames = fs.readdirSync(destination).sort();
   if (sourceNames.length !== destinationNames.length || sourceNames.some((name, index) => name !== destinationNames[index])) return false;
@@ -64,23 +70,27 @@ function runtimeRoot(ztools, legacyRoot) {
   try { pluginData = typeof ztools?.getPath === "function" ? ztools.getPath("pluginData") : ""; } catch {}
   if (!pluginData) return { root: legacyRoot, migrated: false, modern: false };
   const root = path.join(pluginData, "runtime", "v1");
-  const marker = path.join(pluginData, ".format-converter-runtime-migration-v1.json");
+  const marker = path.join(pluginData, ".format-converter-runtime-migration-v2.json");
   let migrated = false;
   try {
-    if (fs.existsSync(marker)) {
-      if (fs.existsSync(root) || !fs.existsSync(legacyRoot)) return { root, migrated, modern: true };
-      return { root: legacyRoot, migrated: false, modern: false };
-    }
     if (fs.existsSync(legacyRoot)) {
       const verified = fs.existsSync(root)
         ? directoriesMatch(legacyRoot, root)
         : copyDirectory(legacyRoot, root);
       if (!verified) return { root: legacyRoot, migrated: false, modern: false };
-      fs.writeFileSync(marker, JSON.stringify({ version: 1, source: legacyRoot, destination: root, copiedAt: new Date().toISOString() }));
+      fs.rmSync(legacyRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      if (fs.existsSync(legacyRoot)) return { root: legacyRoot, migrated: false, modern: false };
+      try { fs.rmdirSync(path.dirname(legacyRoot)); } catch {}
+      try { fs.rmdirSync(path.dirname(path.dirname(legacyRoot))); } catch {}
       migrated = true;
     }
+    fs.mkdirSync(pluginData, { recursive: true });
+    fs.writeFileSync(marker, JSON.stringify({ version: 2, destination: root, completedAt: new Date().toISOString() }));
   } catch {
-    // A failed migration must leave the old runtime usable; never remove it.
+    // Copy/verification failures retain the old runtime. If cleanup already
+    // completed, keep using the verified pluginData copy even if marker write failed.
+    if (fs.existsSync(legacyRoot)) return { root: legacyRoot, migrated: false, modern: false };
+    if (fs.existsSync(root)) return { root, migrated: true, modern: true };
     return { root: legacyRoot, migrated: false, modern: false };
   }
   return { root, migrated, modern: true };

@@ -932,18 +932,15 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
 
 /* 2. 壁纸管理 & 备份画廊 */
 .wallpaper-workbench {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin-bottom: 12px;
-}
-
-@media (max-width: 680px) {
-  .wallpaper-workbench { grid-template-columns: 1fr; }
 }
 
 .wallpaper-preview-hero {
   height: 140px;
+  width: 100%;
   border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--surface-muted);
@@ -964,26 +961,131 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
   gap: 8px;
   font-size: 11px;
   color: var(--ink-faint);
+  text-align: center;
+  padding: 10px;
 }
 
 .wallpaper-gallery-container {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .gallery-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   font-size: 11px;
   color: var(--ink-soft);
+  flex-wrap: wrap;
+}
+
+.gallery-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gallery-search-box input {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  outline: none;
+  width: 110px;
+  transition: all 0.2s ease;
+}
+
+.gallery-search-box input:focus {
+  border-color: var(--accent);
+  width: 140px;
+}
+
+.gallery-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-upload-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn-upload-pill * {
+  cursor: pointer;
+}
+
+.btn-upload-pill:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.btn-upload-pill input[type="file"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.btn-clear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-clear-pill:hover {
+  background: #ef4444;
+  color: #ffffff;
 }
 
 .btn-text-action {
   color: var(--accent);
   font-weight: 600;
   cursor: pointer;
+  font-size: 11px;
+}
+
+.btn-text-danger {
+  background: none;
+  border: none;
+  color: #ef4444;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.btn-text-danger:hover {
+  text-decoration: underline;
 }
 
 .wallpaper-gallery-scroll {
@@ -991,12 +1093,12 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 6px;
-  height: 100px;
+  height: 95px;
 }
 
 .gallery-item {
-  width: 100px;
-  height: 90px;
+  width: 95px;
+  height: 85px;
   flex-shrink: 0;
   border-radius: 8px;
   border: 2px solid transparent;
@@ -1019,15 +1121,16 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
 
 .gallery-item .btn-del-wp {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  background: rgba(0,0,0,0.6);
+  top: 3px;
+  right: 3px;
+  background: rgba(0,0,0,0.65);
   color: #fff;
   border: none;
   border-radius: 50%;
   width: 18px;
   height: 18px;
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1;
   display: none;
   align-items: center;
   justify-content: center;
@@ -1036,6 +1139,61 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
 
 .gallery-item:hover .btn-del-wp {
   display: flex;
+}
+
+.wallpaper-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wallpaper-edit-meta {
+  display: flex;
+  flex: 1.2;
+  gap: 0;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.wallpaper-edit-meta:focus-within {
+  border-color: var(--accent);
+}
+
+.wallpaper-rename-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  outline: none;
+}
+
+.btn-save-rename {
+  padding: 8px 14px;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.btn-save-rename:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-save-rename:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .gallery-empty-hint {
@@ -1400,3 +1558,67 @@ h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; }
   to { transform: rotate(360deg); }
 }
 
+
+
+.wallpaper-actions {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  margin-top: 12px !important;
+  width: 100% !important;
+}
+
+.wallpaper-edit-meta {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--surface) !important;
+  overflow: hidden !important;
+  transition: all 0.2s ease !important;
+}
+
+.wallpaper-edit-meta:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-wash) !important;
+}
+
+.wallpaper-rename-input {
+  flex: 1 !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  color: var(--ink) !important;
+  outline: none !important;
+}
+
+.btn-save-rename {
+  border: none !important;
+  border-left: 1px solid var(--line) !important;
+  background: var(--surface-raised) !important;
+  color: var(--accent) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 8px 16px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-save-rename:hover:not(:disabled) {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+
+.btn-save-rename:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+.btn-upload-pill {
+  cursor: pointer !important;
+}
+
+#wallpaper-file-input { display: none !important; width: 0 !important; height: 0 !important; opacity: 0 !important; position: absolute !important; pointer-events: none !important; visibility: hidden !important; }

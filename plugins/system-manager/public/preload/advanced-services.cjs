@@ -20,6 +20,13 @@ function getAppDataDir() {
 }
 
 const wallpaperStoreFile = path.join(getAppDataDir(), 'wallpapers.json')
+const wallpaperImgsDir = path.join(getAppDataDir(), 'wallpapers')
+
+async function ensureWallpaperDir() {
+  try {
+    await fsPromises.mkdir(wallpaperImgsDir, { recursive: true })
+  } catch (e) {}
+}
 
 async function loadWallpapers() {
   try {
@@ -37,42 +44,139 @@ async function saveWallpapers(list) {
 }
 
 const wallpaperService = {
-  async getGallery() {
-    return await loadWallpapers()
-  },
-  async addWallpaper(filePath, base64Thumb = '') {
+  async getGallery(keyword = '') {
     const list = await loadWallpapers()
+    // 为已有数据补充直读 DataURL 确保在 Chromium 安全策略下均可回显
+    for (const item of list) {
+      if (!item.displayUrl && (item.filePath || item.path)) {
+        try {
+          const targetP = item.filePath || item.path
+          const imgBuf = await fsPromises.readFile(targetP)
+          const ext = path.extname(targetP) || '.jpg'
+          const mime = ext.toLowerCase() === '.png' ? 'image/png' : ext.toLowerCase() === '.webp' ? 'image/webp' : 'image/jpeg'
+          item.displayUrl = `data:${mime};base64,${imgBuf.toString('base64')}`
+        } catch (e) {
+          item.displayUrl = `file://${encodeURI(item.filePath || item.path)}`
+        }
+      }
+    }
+    if (!keyword || !keyword.trim()) return list
+    const q = keyword.trim().toLowerCase()
+    return list.filter(item => (item.name || '').toLowerCase().includes(q))
+  },
+  async addWallpaper(fileOrData, customName = '') {
+    await ensureWallpaperDir()
+    let srcPath = ''
+    let buffer = null
+    let originalName = 'custom_wallpaper.jpg'
+
+    if (typeof fileOrData === 'string') {
+      if (fileOrData.startsWith('data:image/')) {
+        const matches = fileOrData.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/)
+        if (matches) {
+          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
+          originalName = `wallpaper_${Date.now()}.${ext}`
+          buffer = Buffer.from(matches[2], 'base64')
+        }
+      } else {
+        srcPath = fileOrData
+        originalName = path.basename(fileOrData)
+      }
+    } else if (fileOrData && fileOrData.path) {
+      srcPath = fileOrData.path
+      originalName = fileOrData.name || path.basename(srcPath)
+    }
+
+    const id = 'wp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+    let ext = path.extname(originalName) || '.jpg'
+    let destFileName = `${id}${ext}`
+    let destPath = path.join(wallpaperImgsDir, destFileName)
+
+    try {
+      if (buffer) {
+        await fsPromises.writeFile(destPath, buffer)
+      } else if (srcPath) {
+        await fsPromises.copyFile(srcPath, destPath)
+      }
+      
+      // 若是 HEIC / HEIF 格式，macOS 原生自动通过 sips 转码为兼容 JPG 格式以供 Chromium 渲染预览与跨系统设为壁纸
+      if (['.heic', '.heif'].includes(ext.toLowerCase()) && process.platform === 'darwin') {
+        const convertedJpg = path.join(wallpaperImgsDir, `${id}.jpg`)
+        try {
+          await new Promise((resolve, reject) => {
+            execFile('sips', ['-s', 'format', 'jpeg', destPath, '--out', convertedJpg], (err) => {
+              if (err) reject(err)
+              else resolve()
+            })
+          })
+          destPath = convertedJpg
+          ext = '.jpg'
+        } catch (e) {}
+      }
+    } catch (e) {
+      if (srcPath) destPath = srcPath
+    }
+
+    // 生成支持本地安全协议或标准 file:// 协议与 Base64 格式的直读 URI
+    let displayUrl = `file://${encodeURI(destPath)}`
+    try {
+      const imgBuf = await fsPromises.readFile(destPath)
+      const mime = ext.toLowerCase() === '.png' ? 'image/png' : ext.toLowerCase() === '.webp' ? 'image/webp' : 'image/jpeg'
+      displayUrl = `data:${mime};base64,${imgBuf.toString('base64')}`
+    } catch (e) {}
+
     const item = {
-      id: 'wp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-      name: path.basename(filePath),
-      filePath: filePath,
-      path: filePath,
-      thumb: base64Thumb,
+      id,
+      name: customName || originalName,
+      filePath: destPath,
+      path: destPath,
+      displayUrl: displayUrl,
       createdAt: new Date().toISOString()
     }
+
+    const list = await loadWallpapers()
     list.unshift(item)
     await saveWallpapers(list)
     return { ok: true, wallpaper: item, gallery: list }
   },
+  async updateWallpaperName(id, newName) {
+    let list = await loadWallpapers()
+    const target = list.find(w => w.id === id)
+    if (target) {
+      target.name = newName
+      await saveWallpapers(list)
+      return { ok: true, wallpaper: target, gallery: list }
+    }
+    return { ok: false, error: '未找到指定壁纸' }
+  },
   async removeWallpaper(id) {
     let list = await loadWallpapers()
+    const target = list.find(w => w.id === id)
+    if (target && target.filePath) {
+      try {
+        if (target.filePath.startsWith(wallpaperImgsDir)) {
+          await fsPromises.unlink(target.filePath).catch(() => {})
+        }
+      } catch (e) {}
+    }
     list = list.filter(w => w.id !== id)
     await saveWallpapers(list)
     return { ok: true, gallery: list }
   },
   async clearGallery() {
+    let list = await loadWallpapers()
+    for (const item of list) {
+      try {
+        if (item.filePath && item.filePath.startsWith(wallpaperImgsDir)) {
+          await fsPromises.unlink(item.filePath).catch(() => {})
+        }
+      } catch (e) {}
+    }
     await saveWallpapers([])
     return { ok: true, gallery: [] }
   },
-  async saveUploadedWallpaper(fileOrPath) {
-    let targetPath = ''
-    let base64 = ''
-    if (typeof fileOrPath === 'string') {
-      targetPath = fileOrPath
-    } else if (fileOrPath && fileOrPath.path) {
-      targetPath = fileOrPath.path
-    }
-    return await this.addWallpaper(targetPath, base64)
+  async saveUploadedWallpaper(fileOrData, name) {
+    return await this.addWallpaper(fileOrData, name)
   },
   async setWallpaper(filePath) {
     const platform = process.platform
@@ -351,11 +455,12 @@ module.exports = {
   repairNetwork: () => networkService.flushDns(),
   getBatteryDetails: () => batteryService.getBatteryStatus(),
   setWallpaper: (p) => wallpaperService.setWallpaper(p),
-  getWallpapers: () => wallpaperService.getGallery(),
-  getWallpaperGallery: () => wallpaperService.getGallery(),
-  saveWallpaperToGallery: (f) => wallpaperService.saveUploadedWallpaper(f),
+  getWallpapers: (q) => wallpaperService.getGallery(q),
+  getWallpaperGallery: (q) => wallpaperService.getGallery(q),
+  saveWallpaperToGallery: (f, n) => wallpaperService.saveUploadedWallpaper(f, n),
+  updateWallpaperName: (id, n) => wallpaperService.updateWallpaperName(id, n),
   deleteWallpaperFromGallery: (id) => wallpaperService.removeWallpaper(id),
   clearWallpaperGallery: () => wallpaperService.clearGallery(),
-  uploadWallpaper: (f) => wallpaperService.saveUploadedWallpaper(f),
+  uploadWallpaper: (f, n) => wallpaperService.saveUploadedWallpaper(f, n),
   deleteWallpaper: (id) => wallpaperService.removeWallpaper(id)
 }

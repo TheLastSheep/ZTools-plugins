@@ -385,107 +385,188 @@ function setupQuickToolkit() {
     })
   }
 
-  // 2. 壁纸管理 & 备份画廊
+  // 2. 壁纸管理 & 备份画廊 (增删改查全套链路)
   const fileInput = document.getElementById('wallpaper-file-input')
-  const previewHero = document.getElementById('wallpaper-preview-hero')
-  const galleryScroll = document.getElementById('wallpaper-gallery-scroll')
+  const btnTriggerUpload = document.getElementById('btn-trigger-upload')
+  const previewHero = document.getElementById('wallpaper-preview-box')
+  const previewEmpty = document.getElementById('wallpaper-empty-state')
+  const galleryScroll = document.getElementById('wallpaper-gallery-list')
+  const galleryCountEl = document.getElementById('gallery-count')
+  const searchInput = document.getElementById('wallpaper-search-input')
   const btnApplyWallpaper = document.getElementById('btn-apply-wallpaper')
   const btnClearGallery = document.getElementById('btn-clear-gallery')
   const wallpaperResult = document.getElementById('wallpaper-result')
-  const filenameTip = document.getElementById('wallpaper-filename-tip')
-  let selectedWallpaperPath = ''
+  const renameInput = document.getElementById('wp-rename-input')
+  const btnSaveRename = document.getElementById('btn-save-rename')
+  
+  let currentGalleryList = []
+  let selectedWallpaperItem = null
+
+  if (btnTriggerUpload && fileInput) {
+    btnTriggerUpload.addEventListener('click', () => {
+      fileInput.click()
+    })
+  }
 
   async function renderGallery() {
     const adv = getAdv()
     if (!adv.getWallpaperGallery || !galleryScroll) return
-    let list = adv.getWallpaperGallery()
+    const keyword = searchInput ? searchInput.value.trim() : ''
+    let list = adv.getWallpaperGallery(keyword)
     if (list && typeof list.then === 'function') {
       list = await list
     }
-    if (!list || list.length === 0) {
-      galleryScroll.innerHTML = '<div class="gallery-empty-hint">暂无备份壁纸，上传后将自动留档</div>'
+    currentGalleryList = list || []
+    if (galleryCountEl) galleryCountEl.textContent = currentGalleryList.length
+
+    if (!currentGalleryList || currentGalleryList.length === 0) {
+      galleryScroll.innerHTML = `<div class=\"gallery-empty-hint\">${keyword ? '未找到相关壁纸' : '暂无备份壁纸，点击上传加入'}</div>`
       return
     }
+
     galleryScroll.innerHTML = ''
-    list.forEach((item) => {
+    currentGalleryList.forEach((item) => {
       const el = document.createElement('div')
-      const targetP = item.filePath || item.path || ''
-      el.className = 'gallery-item' + (selectedWallpaperPath === targetP ? ' selected' : '')
+      const targetP = item.displayUrl || item.filePath || item.path || ''
+      const isSelected = selectedWallpaperItem && selectedWallpaperItem.id === item.id
+      el.className = 'gallery-item' + (isSelected ? ' selected' : '')
       el.style.backgroundImage = `url('${targetP}')`
       el.title = item.name
 
       const delBtn = document.createElement('button')
       delBtn.className = 'btn-del-wp'
       delBtn.innerHTML = '×'
-      delBtn.title = '删除备份'
+      delBtn.title = '删除此壁纸'
       delBtn.addEventListener('click', async (e) => {
         e.stopPropagation()
         const adv = getAdv()
         if (adv.deleteWallpaperFromGallery) {
           await adv.deleteWallpaperFromGallery(item.id)
+          if (selectedWallpaperItem && selectedWallpaperItem.id === item.id) {
+            selectWallpaper(null)
+          }
           await renderGallery()
         }
       })
 
       el.appendChild(delBtn)
       el.addEventListener('click', () => {
-        selectedWallpaperPath = targetP
-        if (previewHero) previewHero.style.backgroundImage = `url('${targetP}')`
-        if (filenameTip) filenameTip.textContent = item.name
-        if (btnApplyWallpaper) btnApplyWallpaper.disabled = false
-        renderGallery()
+        selectWallpaper(item)
       })
       galleryScroll.appendChild(el)
     })
   }
 
+  function selectWallpaper(item) {
+    selectedWallpaperItem = item
+    if (item) {
+      const p = item.displayUrl || item.filePath || item.path
+      if (previewHero) {
+        previewHero.style.backgroundImage = `url('${p}')`
+      }
+      if (previewEmpty) previewEmpty.style.display = 'none'
+      if (renameInput) {
+        renameInput.disabled = false
+        renameInput.value = item.name || ''
+      }
+      if (btnSaveRename) btnSaveRename.disabled = false
+      if (btnApplyWallpaper) btnApplyWallpaper.disabled = false
+    } else {
+      if (previewHero) previewHero.style.backgroundImage = 'none'
+      if (previewEmpty) previewEmpty.style.display = 'flex'
+      if (renameInput) {
+        renameInput.disabled = true
+        renameInput.value = ''
+      }
+      if (btnSaveRename) btnSaveRename.disabled = true
+      if (btnApplyWallpaper) btnApplyWallpaper.disabled = true
+    }
+    // 刷新选中边框
+    const items = galleryScroll ? galleryScroll.querySelectorAll('.gallery-item') : []
+    items.forEach((dom, idx) => {
+      const match = currentGalleryList[idx] && selectedWallpaperItem && currentGalleryList[idx].id === selectedWallpaperItem.id
+      dom.classList.toggle('selected', match)
+    })
+  }
+
+  // 初始加载画廊
   renderGallery()
 
+  // 查：即时模糊搜索
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      renderGallery()
+    })
+  }
+
+  // 增：上传并进入本地壁纸库
   if (fileInput) {
     fileInput.addEventListener('change', async (e) => {
       const adv = getAdv()
       const file = e.target.files && e.target.files[0]
       if (file) {
-        let finalPath = file.path || URL.createObjectURL(file)
-        if (typeof adv.saveWallpaperToGallery === 'function') {
-          const res = await adv.saveWallpaperToGallery(file)
-          if (res && res.wallpaper) {
-            finalPath = res.wallpaper.filePath || res.wallpaper.path
+        // 读取本地 File 对象的 ArrayBuffer/DataURL 传递给后端，保证无缝兼容无 path 的安全沙箱环境
+        const reader = new FileReader()
+        reader.onload = async (evt) => {
+          const dataUrl = evt.target.result
+          if (typeof adv.saveWallpaperToGallery === 'function') {
+            const res = await adv.saveWallpaperToGallery(dataUrl, file.name)
+            await renderGallery()
+            if (res && res.wallpaper) {
+              selectWallpaper(res.wallpaper)
+            }
           }
+        }
+        reader.readAsDataURL(file)
+        fileInput.value = ''
+      }
+    })
+  }
+
+  // 改：重命名壁纸
+  if (btnSaveRename) {
+    btnSaveRename.addEventListener('click', async () => {
+      const adv = getAdv()
+      if (!selectedWallpaperItem || !renameInput) return
+      const newName = renameInput.value.trim()
+      if (!newName) return
+      if (typeof adv.updateWallpaperName === 'function') {
+        const res = await adv.updateWallpaperName(selectedWallpaperItem.id, newName)
+        if (res && res.wallpaper) {
+          selectedWallpaperItem.name = newName
+          await renderGallery()
+          if (wallpaperResult) {
+            wallpaperResult.hidden = false
+            wallpaperResult.className = 'tool-result-box success'
+            wallpaperResult.textContent = `壁纸已重命名为: ${newName}`
+          }
+        }
+      }
+    })
+  }
+
+  // 删：一键清空全部壁纸库
+  if (btnClearGallery) {
+    btnClearGallery.addEventListener('click', async () => {
+      const adv = getAdv()
+      if (confirm('确定要清空本地所有备份壁纸吗？')) {
+        if (typeof adv.clearWallpaperGallery === 'function') {
+          await adv.clearWallpaperGallery()
+          selectWallpaper(null)
           await renderGallery()
         }
-        selectedWallpaperPath = finalPath
-        if (previewHero) {
-          previewHero.style.backgroundImage = `url('${finalPath}')`
-        }
-        if (filenameTip) filenameTip.textContent = file.name
-        if (btnApplyWallpaper) btnApplyWallpaper.disabled = false
       }
     })
   }
 
-  if (btnClearGallery) {
-    btnClearGallery.addEventListener('click', () => {
-      const adv = getAdv()
-      if (typeof adv.clearWallpaperGallery === 'function') {
-        adv.clearWallpaperGallery()
-        selectedWallpaperPath = ''
-        if (filenameTip) filenameTip.textContent = ''
-        if (btnApplyWallpaper) btnApplyWallpaper.disabled = true
-        if (previewHero) {
-          previewHero.style.backgroundImage = 'none'
-        }
-        renderGallery()
-      }
-    })
-  }
-
+  // 一键应用至桌面壁纸
   if (btnApplyWallpaper) {
     btnApplyWallpaper.addEventListener('click', async () => {
       const adv = getAdv()
-      if (!selectedWallpaperPath) return
+      if (!selectedWallpaperItem) return
+      const targetPath = selectedWallpaperItem.filePath || selectedWallpaperItem.path
       btnApplyWallpaper.disabled = true
-      btnApplyWallpaper.innerHTML = '<span class="spin-indicator"></span> 正在切换...'
+      btnApplyWallpaper.innerHTML = '<span class=\"spin-indicator\"></span> 正在切换...'
       if (wallpaperResult) {
         wallpaperResult.hidden = false
         wallpaperResult.className = 'tool-result-box'
@@ -493,10 +574,10 @@ function setupQuickToolkit() {
       }
       try {
         if (typeof adv.setWallpaper === 'function') {
-          await adv.setWallpaper(selectedWallpaperPath)
+          await adv.setWallpaper(targetPath)
           if (wallpaperResult) {
             wallpaperResult.className = 'tool-result-box success'
-            wallpaperResult.textContent = `✨ 壁纸已成功设为桌面背景！`
+            wallpaperResult.textContent = `✨ 壁纸「${selectedWallpaperItem.name}」已成功设为桌面背景！`
           }
         } else {
           if (wallpaperResult) {
@@ -511,7 +592,7 @@ function setupQuickToolkit() {
         }
       } finally {
         btnApplyWallpaper.disabled = false
-        btnApplyWallpaper.textContent = '一键应用至桌面'
+        btnApplyWallpaper.textContent = '一键设为当前桌面壁纸'
       }
     })
   }

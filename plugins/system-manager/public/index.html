@@ -220,33 +220,48 @@
                   </div>
                   <div class="tool-meta">
                     <span class="tool-title">壁纸管理与图库</span>
-                    <span class="tool-tag">本地上传 / 一键切换 / 画廊备份</span>
+                    <span class="tool-tag">本地持久留档 / 一键更换 / 增删改查</span>
                   </div>
                 </div>
                 
                 <div class="wallpaper-workbench">
                   <div class="wallpaper-preview-hero" id="wallpaper-preview-box">
-                    <div class="preview-empty-state">
+                    <div class="preview-empty-state" id="wallpaper-empty-state">
                       <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/></svg>
-                      <span>选择或从下方画廊点击壁纸预览</span>
+                      <span>选择下方画廊壁纸或上传新图片</span>
                     </div>
                   </div>
                   <div class="wallpaper-gallery-container">
                     <div class="gallery-toolbar">
-                      <span>本地已备份壁纸 (<b id="gallery-count">0</b>)</span>
-                      <label class="btn-text-action">
-                        <span>+ 上传新壁纸</span>
-                        <input type="file" id="wallpaper-file-input" accept="image/png,image/jpeg,image/webp,image/jpg" style="display:none" />
-                      </label>
+                      <div class="gallery-title-row">
+                        <span>本地壁纸库 (<b id="gallery-count">0</b>)</span>
+                        <div class="gallery-search-box">
+                          <input type="text" id="wallpaper-search-input" placeholder="搜索壁纸..." />
+                        </div>
+                      </div>
+                      <div class="gallery-btn-row">
+                        <button class="btn-upload-pill" id="btn-trigger-upload" type="button">
+                          <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                          <span>上传壁纸</span>
+                        </button>
+                        <input type="file" id="wallpaper-file-input" accept="image/png,image/jpeg,image/webp,image/jpg,image/heic,image/heif,.heic,.heif" style="display:none;" />
+                        <button class="btn-clear-pill" id="btn-clear-gallery" title="清空全部图库">
+                          <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                          <span>清空图库</span>
+                        </button>
+                      </div>
                     </div>
                     <div class="wallpaper-gallery-scroll" id="wallpaper-gallery-list">
-                      <div class="gallery-empty-hint">暂无备份壁纸，点击上传添加</div>
+                      <div class="gallery-empty-hint">暂无备份壁纸，点击上方上传添加</div>
                     </div>
                   </div>
                 </div>
 
                 <div class="tool-actions wallpaper-actions">
-                  <span class="wallpaper-filename-tip" id="wp-filename-tip">未选定壁纸</span>
+                  <div class="wallpaper-edit-meta">
+                    <input type="text" class="wallpaper-rename-input" id="wp-rename-input" placeholder="壁纸名称 (可重命名)" disabled />
+                    <button class="btn-save-rename" id="btn-save-rename" disabled title="保存重命名">重命名</button>
+                  </div>
                   <button class="action-btn action-btn-primary" id="btn-apply-wallpaper" disabled>
                     <span>一键设为当前桌面壁纸</span>
                   </button>

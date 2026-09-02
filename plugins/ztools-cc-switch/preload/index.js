@@ -54,6 +54,7 @@ const { createFailoverManager } = require('./failoverManager')
 const { createClientVisibilityManager } = require('./clientVisibility')
 const { createRouteLifecycleManager } = require('./routeLifecycleManager')
 const { resolveSidecarRuntimeDir } = require('./ztoolsCompatibility')
+const { migrateDefaultDataDir } = require('./pluginDataMigration')
 
 function resolveDataDir() {
   try {
@@ -63,7 +64,8 @@ function resolveDataDir() {
       if (fs.statSync(resolved).isDirectory()) return resolved
     }
     if (window.ztools && typeof window.ztools.getPath === 'function') {
-      return path.join(window.ztools.getPath('userData'), 'ztools-cc-switch')
+      const legacyDataDir = path.join(window.ztools.getPath('userData'), 'ztools-cc-switch')
+      return migrateDefaultDataDir(window.ztools, legacyDataDir).path
     }
   } catch (error) {
     console.warn('[cc-switch] 无法读取 ZTools userData，使用 Home 目录降级:', error.message)
@@ -79,9 +81,8 @@ function getDefaultDataDir() {
   return path.join(process.env.HOME || process.env.USERPROFILE, '.ztools', 'cc-switch')
 }
 const bundledRulesPath = path.join(__dirname, '..', 'default-rules.json')
-// Only the ASAR-extracted sidecar is recreated data. Keep all Provider files,
-// overrides and encrypted credentials in the established dataDir so a 3.2 ->
-// 3.1 downgrade never loses or re-encrypts user data.
+// The default plugin-owned data directory migrates to pluginData on 3.2. A
+// user-selected external override remains untouched and outside uninstall cleanup.
 const sidecarRuntime = resolveSidecarRuntimeDir(window.ztools, getDefaultDataDir())
 const sidecar = createSidecarClient({ extractDir: sidecarRuntime.path })
 let authManager = null

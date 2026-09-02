@@ -7,7 +7,7 @@ const path = require('node:path')
 const { binaryFilename, isAsarPath, createSidecarClient } = require('../preload/sidecarClient')
 const { getHostCompatibility, resolveSidecarRuntimeDir } = require('../preload/ztoolsCompatibility')
 
-test('ZTools 3.2 uses pluginData only for recreated sidecar runtime and older hosts retain the legacy cache', () => {
+test('ZTools 3.2 resolves sidecar runtime in pluginData while older hosts use the legacy cache', () => {
   assert.deepEqual(getHostCompatibility(undefined), { supported: true, detected: false, version: null })
   assert.equal(getHostCompatibility({ getAppVersion: () => '2.3.9' }).supported, false)
   assert.equal(getHostCompatibility({ getAppVersion: () => '2.4.0' }).supported, true)

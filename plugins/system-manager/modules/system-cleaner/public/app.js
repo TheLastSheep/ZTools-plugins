@@ -75,6 +75,8 @@ function render(result) {
     checkbox.setAttribute('aria-label', `选择 ${candidate.label}`)
     checkbox.checked = candidate.selectedByDefault
     checkbox.addEventListener('change', updateSelection)
+    const iconEl = fragment.querySelector('.candidate-icon')
+    if (iconEl && candidate.icon) { iconEl.src = candidate.icon }
     fragment.querySelector('.candidate-label').textContent = candidate.label
     fragment.querySelector('.candidate-badge').textContent = CATEGORY_LABELS[candidate.category] || candidate.category
     fragment.querySelector('.candidate-location').textContent = candidate.location

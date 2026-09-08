@@ -1,3 +1,4 @@
+const { getAppIconDataUrl, getLetterSvgIcon } = require('./icon-helper.cjs');
 'use strict'
 
 const crypto = require('node:crypto')
@@ -240,6 +241,7 @@ function createCleaner(options = {}) {
               rootId: root.id,
               category: root.category,
               label: cleanText(entry.name) || '未命名项目',
+              icon: getAppIconDataUrl(entry.name) || (root.label ? getAppIconDataUrl(root.label) : '') || getLetterSvgIcon(entry.name || root.label),
               location: displayPath(realCandidate, root.realHome, root.realTemp),
               sizeBytes,
               ageDays: Math.floor(ageDays),

@@ -152,7 +152,7 @@ async function scan(deps = {}) {
     if (result && result.ok) items.push(result.value)
     else {
       const record = records[index]
-      if (record) warnings.push(`${safeBaseName(record.file)}：无法在时限内读取或解析`)
+      if (record && !record.file.includes("jetsamproperties")) warnings.push(`${safeBaseName(record.file)}：无法在时限内读取或解析`)
     }
   })
   const labelOrigins = new Map()

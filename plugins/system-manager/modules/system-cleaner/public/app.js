@@ -79,13 +79,13 @@ function createGroupCard(group, groupId) {
   card.dataset.groupId = groupId;
 
   const header = document.createElement('div');
-  header.className = 'group-header';
+  header.className = 'candidate group-header';
 
   const selectLabel = document.createElement('label');
   selectLabel.className = 'candidate-select';
   const groupCheck = document.createElement('input');
   groupCheck.type = 'checkbox';
-  groupCheck.className = 'group-check';
+  groupCheck.className = 'candidate-check group-check';
   groupCheck.checked = group.items.some(i => i.selectedByDefault);
   const selectSpan = document.createElement('span');
   selectSpan.setAttribute('aria-hidden', 'true');
@@ -128,7 +128,7 @@ function createGroupCard(group, groupId) {
 
   const toggleBtn = document.createElement('button');
   toggleBtn.type = 'button';
-  toggleBtn.className = 'group-toggle-btn quiet';
+  toggleBtn.className = 'reveal-button group-toggle-btn quiet';
   toggleBtn.textContent = isExpanded ? '收起 ▲' : '展开 ▼';
 
   header.appendChild(selectLabel);
@@ -154,6 +154,7 @@ function createGroupCard(group, groupId) {
     const childIcon = childNode.querySelector('.candidate-icon');
     if (item.icon) {
       childIcon.src = item.icon;
+      childIcon.style.display = '';
     } else {
       childIcon.style.display = 'none';
     }
@@ -166,7 +167,8 @@ function createGroupCard(group, groupId) {
     childNode.querySelector('.candidate-age').textContent = item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('zh-CN') : '近期';
 
     const reveal = childNode.querySelector('.reveal-button');
-    reveal.addEventListener('click', () => {
+    reveal.addEventListener('click', (e) => {
+      e.stopPropagation();
       if (api?.reveal) {
         api.reveal(item.location).catch((error) => alert(error?.message || '无法定位路径'));
       }
@@ -181,6 +183,13 @@ function createGroupCard(group, groupId) {
       c.checked = checked;
     });
     updateSelection();
+  });
+
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('.candidate-select') || e.target.closest('.reveal-button')) {
+      return;
+    }
+    toggleBtn.click();
   });
 
   toggleBtn.addEventListener('click', (e) => {
@@ -211,7 +220,7 @@ function render(result) {
 
   if (result.warnings?.length) {
     elements.warnings.hidden = false;
-    elements.warnings.textContent = result.warnings.join('；');
+    elements.warnings.textContent = result.warnings.map(w => typeof w === 'string' ? w : (w?.message || w?.code || JSON.stringify(w))).join('；');
   } else {
     elements.warnings.hidden = true;
     elements.warnings.textContent = '';

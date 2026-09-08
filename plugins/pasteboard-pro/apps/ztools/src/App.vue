@@ -21,6 +21,7 @@ import {
   type WindowPreferences,
 } from "../preload/window-preferences";
 
+import { markWindowReady } from "../window-ready";
 import Shelf from "./components/Shelf.vue";
 import { createHistoryRefresh } from "./history-refresh";
 import Preview from "./components/Preview.vue";
@@ -100,6 +101,7 @@ const listOrders = ref<ListOrders>({});
 const listOrderSaving = ref(false);
 const previewItemId = ref<string>();
 const status = ref("本地历史已就绪");
+const startupError = ref<string>();
 const shelfView = ref<InstanceType<typeof Shelf>>();
 const syncSettings = ref<SyncSettings>(structuredClone(defaultSyncSettings));
 const privacySettings = ref<PrivacySettings>(structuredClone(defaultPrivacySettings));
@@ -858,8 +860,11 @@ async function onWindowPreferencesChanged(): Promise<void> {
   if (preferences !== undefined) windowPreferences.value = preferences;
 }
 
-onMounted(async () => {
+async function initializeWindow(): Promise<void> {
   if (requiresHostUpgrade) return;
+  if (!import.meta.env.DEV && window.pasteboardPro === undefined) {
+    throw new Error("Paste preload bridge is unavailable");
+  }
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("pasteboard-pro:paste-stack-changed", onPasteStackChanged);
   window.addEventListener(
@@ -944,6 +949,20 @@ onMounted(async () => {
   }
   await loadHistory();
   await loadPinboards();
+}
+
+onMounted(async () => {
+  try {
+    await initializeWindow();
+  } catch (error) {
+    console.error("Paste initial content failed to load", error);
+    startupError.value = "加载失败，请关闭后重新打开 Paste";
+  } finally {
+    // nextTick includes child updates from the initial history and theme. Unlike
+    // requestAnimationFrame, it also runs while an Electron window is hidden.
+    await nextTick();
+    markWindowReady();
+  }
 });
 
 onBeforeUnmount(() => {
@@ -980,6 +999,10 @@ onBeforeUnmount(() => {
       <small v-if="hostCompatibility?.currentVersion">
         当前版本：{{ hostCompatibility.currentVersion }}
       </small>
+    </section>
+    <section v-else-if="startupError" class="upgrade-required" role="alert">
+      <p>{{ startupError }}</p>
+      <button type="button" @click="closeWindow">关闭</button>
     </section>
     <template v-else>
     <Shelf

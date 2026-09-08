@@ -1,32 +1,28 @@
-'use strict'
-
-const CATEGORY_LABELS = { cache: '缓存', logs: '日志', temporary: '临时' }
-const state = { snapshotId: '', candidates: [], busy: false }
-const elements = {
-  scanButton: document.querySelector('#scanButton'),
-  cleanButton: document.querySelector('#cleanButton'),
-  themeButton: document.querySelector('#themeButton'),
-  statusPanel: document.querySelector('#statusPanel'),
-  resultPanel: document.querySelector('#resultPanel'),
-  totalSize: document.querySelector('#totalSize'),
-  scanMeta: document.querySelector('#scanMeta'),
-  candidateList: document.querySelector('#candidateList'),
-  selectedSize: document.querySelector('#selectedSize'),
-  selectedCount: document.querySelector('#selectedCount'),
-  warnings: document.querySelector('#warnings'),
-  template: document.querySelector('#candidateTemplate'),
-  dialog: document.querySelector('#confirmDialog'),
-  dialogCount: document.querySelector('#dialogCount'),
-  dialogSize: document.querySelector('#dialogSize'),
-  confirmInput: document.querySelector('#confirmInput'),
-  confirmCleanButton: document.querySelector('#confirmCleanButton')
+const CATEGORY_LABELS = {
+  cache: '应用与系统缓存',
+  temporary: '临时工作文件',
+  logs: '诊断与运行日志'
 }
 
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  return `${(bytes / 1024 ** unit).toLocaleString('zh-CN', { maximumFractionDigits: unit > 2 ? 1 : 0 })} ${units[unit]}`
+const elements = {
+  scanButton: document.getElementById('scan-button'),
+  cleanButton: document.getElementById('clean-button'),
+  resultPanel: document.getElementById('result-panel'),
+  statusPanel: document.getElementById('status-panel'),
+  candidateList: document.getElementById('candidate-list'),
+  totalSize: document.getElementById('total-size'),
+  selectedSize: document.getElementById('selected-size'),
+  selectedCount: document.getElementById('selected-count'),
+  scanMeta: document.getElementById('scan-meta'),
+  warnings: document.getElementById('scan-warnings'),
+  template: document.getElementById('candidate-template')
+}
+
+const state = {
+  snapshotId: null,
+  candidates: [],
+  busy: false,
+  expandedGroups: new Set()
 }
 
 const api = window.systemCleaner || null
@@ -42,13 +38,31 @@ function updateSelection() {
   elements.selectedSize.textContent = formatBytes(bytes)
   elements.selectedCount.textContent = `已选 ${selected.length} 项`
   elements.cleanButton.disabled = state.busy || selected.length === 0
+
+  document.querySelectorAll('.group-card').forEach((card) => {
+    const groupCheck = card.querySelector('.group-check')
+    if (!groupCheck) return
+    const childChecks = [...card.querySelectorAll('.child-item .candidate-check')]
+    if (!childChecks.length) return
+    const checkedCount = childChecks.filter(c => c.checked).length
+    if (checkedCount === 0) {
+      groupCheck.checked = false
+      groupCheck.indeterminate = false
+    } else if (checkedCount === childChecks.length) {
+      groupCheck.checked = true
+      groupCheck.indeterminate = false
+    } else {
+      groupCheck.checked = false
+      groupCheck.indeterminate = true
+    }
+  })
 }
 
 function setBusy(busy) {
   state.busy = busy
   elements.scanButton.disabled = busy
   elements.cleanButton.disabled = busy || selectedCandidates().length === 0
-  document.querySelectorAll('.candidate-check').forEach((input) => { input.disabled = busy })
+  document.querySelectorAll('.candidate-check, .group-check').forEach((input) => { input.disabled = busy })
   document.querySelectorAll('input[name=category]').forEach((input) => { input.disabled = busy })
 }
 
@@ -66,28 +80,202 @@ function render(result) {
     empty.className = 'empty'
     empty.textContent = '所选分类中没有可安全清理的项目。'
     elements.candidateList.append(empty)
+    elements.statusPanel.hidden = true
+    elements.resultPanel.hidden = false
+    updateSelection()
+    return
   }
-  for (const candidate of state.candidates) {
-    const fragment = elements.template.content.cloneNode(true)
-    const article = fragment.querySelector('.candidate')
-    const checkbox = fragment.querySelector('.candidate-check')
-    checkbox.dataset.id = candidate.id
-    checkbox.setAttribute('aria-label', `选择 ${candidate.label}`)
-    checkbox.checked = candidate.selectedByDefault
-    checkbox.addEventListener('change', updateSelection)
-    const iconEl = fragment.querySelector('.candidate-icon')
-    if (iconEl && candidate.icon) { iconEl.src = candidate.icon }
-    fragment.querySelector('.candidate-label').textContent = candidate.label
-    fragment.querySelector('.candidate-badge').textContent = CATEGORY_LABELS[candidate.category] || candidate.category
-    fragment.querySelector('.candidate-location').textContent = candidate.location
-    fragment.querySelector('.candidate-size').textContent = formatBytes(candidate.sizeBytes)
-    fragment.querySelector('.candidate-age').textContent = candidate.ageDays ? `${candidate.ageDays} 天未更新` : '近期项目'
-    const revealButton = fragment.querySelector('.reveal-button')
-    revealButton.setAttribute('aria-label', `在文件管理器中定位 ${candidate.label}`)
-    revealButton.addEventListener('click', () => api.reveal({ snapshotId: state.snapshotId, candidateId: candidate.id }))
-    article.dataset.candidateId = candidate.id
-    elements.candidateList.append(fragment)
+
+  // 按应用/宿主归并同一 App 的子项
+  const groupsMap = new Map()
+  for (const c of state.candidates) {
+    const key = c.appName || c.label || '系统通用缓存'
+    if (!groupsMap.has(key)) {
+      groupsMap.set(key, { name: key, icon: c.icon, items: [] })
+    }
+    const g = groupsMap.get(key)
+    if (!g.icon && c.icon) g.icon = c.icon
+    g.items.push(c)
   }
+
+  const groups = Array.from(groupsMap.values()).sort((a, b) => {
+    const sizeA = a.items.reduce((sum, it) => sum + it.sizeBytes, 0)
+    const sizeB = b.items.reduce((sum, it) => sum + it.sizeBytes, 0)
+    return sizeB - sizeA
+  })
+
+  for (const group of groups) {
+    const groupCard = document.createElement('section')
+    groupCard.className = 'group-card'
+
+    const totalBytes = group.items.reduce((sum, it) => sum + it.sizeBytes, 0)
+    const hasMultiple = group.items.length > 1
+    const isExpanded = state.expandedGroups.has(group.name)
+
+    const header = document.createElement('div')
+    header.className = 'candidate group-header'
+
+    const selectLabel = document.createElement('label')
+    selectLabel.className = 'candidate-select'
+    const groupCheck = document.createElement('input')
+    groupCheck.type = 'checkbox'
+    groupCheck.className = 'group-check candidate-check-hidden'
+    groupCheck.setAttribute('aria-label', `选择 ${group.name}`)
+    const checkSpan = document.createElement('span')
+    checkSpan.setAttribute('aria-hidden', 'true')
+    selectLabel.append(groupCheck, checkSpan)
+
+    const iconImg = document.createElement('img')
+    iconImg.className = 'candidate-icon'
+    iconImg.alt = ''
+    iconImg.setAttribute('aria-hidden', 'true')
+    if (group.icon) iconImg.src = group.icon
+
+    const mainDiv = document.createElement('div')
+    mainDiv.className = 'candidate-main'
+    const titleRow = document.createElement('div')
+    const strongName = document.createElement('strong')
+    strongName.className = 'candidate-label'
+    strongName.textContent = group.name
+    titleRow.append(strongName)
+
+    if (hasMultiple) {
+      const countBadge = document.createElement('span')
+      countBadge.className = 'candidate-badge group-badge'
+      countBadge.textContent = `${group.items.length} 处项目 (默认折叠)`
+      titleRow.append(countBadge)
+    } else {
+      const badge = document.createElement('span')
+      badge.className = 'candidate-badge'
+      badge.textContent = CATEGORY_LABELS[group.items[0].category] || group.items[0].category
+      titleRow.append(badge)
+    }
+
+    const subP = document.createElement('p')
+    subP.className = 'candidate-location'
+    subP.textContent = hasMultiple ? `聚合该应用的 ${group.items.length} 处缓存与日志目录` : group.items[0].location
+    mainDiv.append(titleRow, subP)
+
+    const infoDiv = document.createElement('div')
+    infoDiv.className = 'candidate-info'
+    const sizeStrong = document.createElement('strong')
+    sizeStrong.className = 'candidate-size'
+    sizeStrong.textContent = formatBytes(totalBytes)
+    const ageSpan = document.createElement('span')
+    ageSpan.className = 'candidate-age'
+    ageSpan.textContent = hasMultiple ? '应用级聚合' : (group.items[0].ageDays ? `${group.items[0].ageDays} 天未更新` : '近期项目')
+    infoDiv.append(sizeStrong, ageSpan)
+
+    let actionBtn = null
+    if (hasMultiple) {
+      actionBtn = document.createElement('button')
+      actionBtn.type = 'button'
+      actionBtn.className = 'quiet toggle-expand-btn'
+      actionBtn.textContent = isExpanded ? '收起' : '展开'
+      actionBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (state.expandedGroups.has(group.name)) {
+          state.expandedGroups.delete(group.name)
+        } else {
+          state.expandedGroups.add(group.name)
+        }
+        render({ snapshotId: state.snapshotId, candidates: state.candidates, totalBytes: result.totalBytes, generatedAt: result.generatedAt, warnings: result.warnings })
+      })
+    } else {
+      actionBtn = document.createElement('button')
+      actionBtn.type = 'button'
+      actionBtn.className = 'reveal-button quiet'
+      actionBtn.textContent = '定位'
+      actionBtn.addEventListener('click', () => api.reveal({ snapshotId: state.snapshotId, candidateId: group.items[0].id }))
+    }
+
+    header.append(selectLabel, iconImg, mainDiv, infoDiv, actionBtn)
+    groupCard.append(header)
+
+    if (hasMultiple) {
+      const childContainer = document.createElement('div')
+      childContainer.className = 'group-children'
+      childContainer.hidden = !isExpanded
+
+      for (const item of group.items) {
+        const itemRow = document.createElement('div')
+        itemRow.className = 'candidate child-item'
+
+        const childLabel = document.createElement('label')
+        childLabel.className = 'candidate-select'
+        const childCheck = document.createElement('input')
+        childCheck.type = 'checkbox'
+        childCheck.className = 'candidate-check candidate-check-hidden'
+        childCheck.dataset.id = item.id
+        childCheck.checked = item.selectedByDefault
+        childCheck.setAttribute('aria-label', `选择 ${item.label}`)
+        childCheck.addEventListener('change', updateSelection)
+
+        const childSpan = document.createElement('span')
+        childSpan.setAttribute('aria-hidden', 'true')
+        childLabel.append(childCheck, childSpan)
+
+        const childIcon = document.createElement('img')
+        childIcon.className = 'candidate-icon child-icon'
+        childIcon.alt = ''
+        childIcon.setAttribute('aria-hidden', 'true')
+        if (item.icon) childIcon.src = item.icon
+
+        const childMain = document.createElement('div')
+        childMain.className = 'candidate-main'
+        const childTitle = document.createElement('div')
+        const cStrong = document.createElement('strong')
+        cStrong.className = 'candidate-label'
+        cStrong.textContent = item.label
+        const cBadge = document.createElement('span')
+        cBadge.className = 'candidate-badge'
+        cBadge.textContent = CATEGORY_LABELS[item.category] || item.category
+        childTitle.append(cStrong, cBadge)
+
+        const cLoc = document.createElement('p')
+        cLoc.className = 'candidate-location'
+        cLoc.textContent = item.location
+        childMain.append(childTitle, cLoc)
+
+        const cInfo = document.createElement('div')
+        cInfo.className = 'candidate-info'
+        const cSize = document.createElement('strong')
+        cSize.className = 'candidate-size'
+        cSize.textContent = formatBytes(item.sizeBytes)
+        const cAge = document.createElement('span')
+        cAge.className = 'candidate-age'
+        cAge.textContent = item.ageDays ? `${item.ageDays} 天未更新` : '近期项目'
+        cInfo.append(cSize, cAge)
+
+        const cReveal = document.createElement('button')
+        cReveal.type = 'button'
+        cReveal.className = 'reveal-button quiet'
+        cReveal.textContent = '定位'
+        cReveal.addEventListener('click', () => api.reveal({ snapshotId: state.snapshotId, candidateId: item.id }))
+
+        itemRow.append(childLabel, childIcon, childMain, cInfo, cReveal)
+        childContainer.append(itemRow)
+      }
+
+      groupCheck.addEventListener('change', () => {
+        const checked = groupCheck.checked
+        childContainer.querySelectorAll('.candidate-check').forEach(c => {
+          c.checked = checked
+        })
+        updateSelection()
+      })
+
+      groupCard.append(childContainer)
+    } else {
+      groupCheck.dataset.id = group.items[0].id
+      groupCheck.classList.add('candidate-check')
+      groupCheck.checked = group.items[0].selectedByDefault
+      groupCheck.addEventListener('change', updateSelection)
+    }
+
+    elements.candidateList.append(groupCard)
+  }
+
   elements.statusPanel.hidden = true
   elements.resultPanel.hidden = false
   updateSelection()
@@ -113,52 +301,39 @@ async function scan() {
   }
 }
 
-function openConfirm() {
-  const selected = selectedCandidates()
-  elements.dialogCount.textContent = String(selected.length)
-  elements.dialogSize.textContent = formatBytes(selected.reduce((sum, item) => sum + item.sizeBytes, 0))
-  elements.confirmInput.value = ''
-  elements.confirmCleanButton.disabled = true
-  elements.dialog.showModal()
-  elements.confirmInput.focus()
-}
-
-async function executeClean() {
-  const selected = selectedCandidates()
-  if (!selected.length || elements.confirmInput.value !== '移到废纸篓') return
+async function clean() {
+  const candidates = selectedCandidates()
+  if (!candidates.length) return
   setBusy(true)
-  elements.confirmCleanButton.disabled = true
+  elements.statusPanel.hidden = false
+  elements.statusPanel.classList.remove('is-error')
+  elements.statusPanel.querySelector('strong').textContent = '正在移入系统废纸篓'
+  elements.statusPanel.querySelector('p').textContent = `正在处理 ${candidates.length} 个项目，可在废纸篓中安全恢复。`
   try {
-    const result = await api.clean({ snapshotId: state.snapshotId, candidateIds: selected.map((item) => item.id), confirmation: '移到废纸篓' })
-    const failedResults = (result.results || []).filter((item) => item.status === 'failed')
-    const failed = new Set(failedResults.map((item) => item.candidateId))
-    state.candidates = state.candidates.filter((item) => failed.has(item.id) || !selected.some((chosen) => chosen.id === item.id))
-    elements.dialog.close()
-    await scan()
-    if (failedResults.length) {
-      elements.warnings.hidden = false
-      elements.warnings.textContent = `${failedResults.length} 项未能移到废纸篓，已安全跳过；请查看权限或重新扫描。`
-    }
+    if (!api || typeof api.clean !== 'function') throw new Error('本地清理能力未加载，请在 ZTools 中重新打开插件。')
+    const result = await api.clean({
+      snapshotId: state.snapshotId,
+      candidateIds: candidates.map((item) => item.id)
+    })
+    render(result)
   } catch (error) {
-    elements.confirmInput.setCustomValidity(error?.message || '清理失败，请重新扫描')
-    elements.confirmInput.reportValidity()
+    elements.statusPanel.classList.add('is-error')
+    elements.statusPanel.querySelector('strong').textContent = '清理未完成'
+    elements.statusPanel.querySelector('p').textContent = error?.message || '部分项目未被移入废纸篓。'
   } finally {
     setBusy(false)
   }
 }
 
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme
-  try { localStorage.setItem('system-cleaner-theme', theme) } catch {}
+function formatBytes(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / Math.pow(1024, index)
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`
 }
 
 elements.scanButton.addEventListener('click', scan)
-elements.cleanButton.addEventListener('click', openConfirm)
-elements.confirmInput.addEventListener('input', () => { elements.confirmInput.setCustomValidity(''); elements.confirmCleanButton.disabled = elements.confirmInput.value !== '移到废纸篓' })
-elements.confirmCleanButton.addEventListener('click', executeClean)
-elements.themeButton.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'))
-document.querySelectorAll('input[name=category]').forEach((input) => input.addEventListener('change', scan))
-let initialTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-try { initialTheme = localStorage.getItem('system-cleaner-theme') || initialTheme } catch {}
-applyTheme(initialTheme)
+elements.cleanButton.addEventListener('click', clean)
+
 scan()

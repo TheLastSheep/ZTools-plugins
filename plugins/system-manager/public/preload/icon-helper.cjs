@@ -1,3 +1,6 @@
+/**
+ * 通用 App 图标提取与高保真矢量回退工具
+ */
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -6,37 +9,65 @@ const { execFileSync } = require('child_process');
 const iconCache = new Map();
 let bundleIndex = null;
 
+function normalizeKey(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str.toLowerCase()
+    .replace(/^(com|org|net|io)\.[^.]+\./i, '')
+    .replace(/[\s\-_.]+/g, '')
+    .trim();
+}
+
 function buildBundleIndex() {
   if (bundleIndex) return bundleIndex;
   bundleIndex = new Map();
-  if (process.platform !== 'darwin') return bundleIndex;
 
-  const appDirs = ['/Applications', '/System/Applications', path.join(os.homedir(), 'Applications')];
-  for (const appDir of appDirs) {
-    if (!fs.existsSync(appDir)) continue;
+  const appDirs = [
+    '/Applications',
+    '/System/Applications',
+    '/System/Applications/Utilities',
+    path.join(os.homedir(), 'Applications')
+  ];
+
+  for (const dir of appDirs) {
+    if (!fs.existsSync(dir)) continue;
     try {
-      const entries = fs.readdirSync(appDir);
-      for (const entry of entries) {
-        if (!entry.endsWith('.app')) continue;
-        const fullAppPath = path.join(appDir, entry);
-        const nameWithoutExt = entry.replace(/\.app$/i, '');
-        bundleIndex.set(nameWithoutExt.toLowerCase(), fullAppPath);
-        bundleIndex.set(entry.toLowerCase(), fullAppPath);
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        if (!file.endsWith('.app')) continue;
+        const appPath = path.join(dir, file);
+        const appName = file.slice(0, -4);
+        
+        // 索引直接应用名称
+        bundleIndex.set(appName.toLowerCase(), appPath);
+        const normName = normalizeKey(appName);
+        if (normName && normName.length >= 2) bundleIndex.set(normName, appPath);
 
-        const plistPath = path.join(fullAppPath, 'Contents/Info.plist');
+        const plistPath = path.join(appPath, 'Contents/Info.plist');
         if (fs.existsSync(plistPath)) {
           try {
             const out = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], {
               encoding: 'utf8',
               stdio: ['ignore', 'pipe', 'ignore'],
-              timeout: 1000
+              timeout: 600
             });
             const plist = JSON.parse(out);
             if (plist.CFBundleIdentifier) {
-              bundleIndex.set(plist.CFBundleIdentifier.toLowerCase(), fullAppPath);
+              const bundleId = plist.CFBundleIdentifier.toLowerCase();
+              bundleIndex.set(bundleId, appPath);
+              const normBundle = normalizeKey(bundleId);
+              if (normBundle && normBundle.length >= 2) bundleIndex.set(normBundle, appPath);
+
+              const sub = bundleId.split('.').pop();
+              // Don't index generic words like 'desktop', 'agent', 'helper', 'client', 'app'
+              const genericWords = new Set(['desktop', 'agent', 'helper', 'client', 'app', 'service', 'launcher', 'daemon', 'updater']);
+              if (sub && sub.length >= 3 && !genericWords.has(sub.toLowerCase())) {
+                bundleIndex.set(sub, appPath);
+              }
             }
             if (plist.CFBundleName) {
-              bundleIndex.set(plist.CFBundleName.toLowerCase(), fullAppPath);
+              bundleIndex.set(plist.CFBundleName.toLowerCase(), appPath);
+              const normCb = normalizeKey(plist.CFBundleName);
+              if (normCb && normCb.length >= 2) bundleIndex.set(normCb, appPath);
             }
           } catch {}
         }
@@ -63,12 +94,20 @@ function resolveAppPath(query) {
   const lower = trimmed.toLowerCase();
   if (idx.has(lower)) return idx.get(lower);
 
-  const cleanQuery = lower.replace(/^(com|org|net|io)\.[^.]+\./, '').replace(/[^a-z0-9]/g, '');
-  if (cleanQuery.length >= 3) {
+  const cleanQuery = normalizeKey(lower);
+  if (cleanQuery && cleanQuery.length >= 3) {
+    if (idx.has(cleanQuery)) return idx.get(cleanQuery);
+    // 仅在长度相近或存在明确前缀/后缀包含时进行匹配，且 cleanKey 必须具备实质长度（>=3）
     for (const [key, appPath] of idx.entries()) {
-      const cleanKey = key.replace(/^(com|org|net|io)\.[^.]+\./, '').replace(/[^a-z0-9]/g, '');
-      if (cleanKey.includes(cleanQuery) || cleanQuery.includes(cleanKey)) {
-        return appPath;
+      const cleanKey = normalizeKey(key);
+      if (cleanKey && cleanKey.length >= 3) {
+        if (cleanKey === cleanQuery) {
+          return appPath;
+        }
+        // 仅在严格相等时直接返回，避免 ShipIt / Agent / Helper 等被错误匹配
+        if (cleanKey === cleanQuery) {
+          return appPath;
+        }
       }
     }
   }
@@ -94,7 +133,7 @@ function extractDarwinIcon(appPath) {
         const out = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 1000
+          timeout: 600
         });
         const plist = JSON.parse(out);
         if (plist.CFBundleIconFile) {
@@ -103,10 +142,10 @@ function extractDarwinIcon(appPath) {
       } catch {}
     }
 
-    if (!iconFileName || !fs.existsSync(path.join(resourcesDir, iconFileName))) {
-      const resFiles = fs.readdirSync(resourcesDir);
-      const foundIcns = resFiles.find(f => f.endsWith('.icns'));
-      if (foundIcns) iconFileName = foundIcns;
+    if (!iconFileName) {
+      const files = fs.readdirSync(resourcesDir);
+      const icns = files.find(f => f.endsWith('.icns'));
+      if (icns) iconFileName = icns;
     }
 
     if (!iconFileName) {
@@ -114,22 +153,22 @@ function extractDarwinIcon(appPath) {
       return null;
     }
 
-    const icnsFullPath = path.join(resourcesDir, iconFileName);
-    if (!fs.existsSync(icnsFullPath)) {
+    const icnsPath = path.join(resourcesDir, iconFileName);
+    if (!fs.existsSync(icnsPath)) {
       iconCache.set(appPath, null);
       return null;
     }
 
-    const tmpPng = path.join(os.tmpdir(), 'ztools-icon-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.png');
-    execFileSync('sips', ['-s', 'format', 'png', icnsFullPath, '--out', tmpPng, '-z', '48', '48'], {
+    const tmpOut = path.join(os.tmpdir(), 'ztools-icon-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.png');
+    execFileSync('/usr/bin/sips', ['-s', 'format', 'png', icnsPath, '--out', tmpOut, '-z', '48', '48'], {
       stdio: ['ignore', 'ignore', 'ignore'],
-      timeout: 2000
+      timeout: 1500
     });
 
-    if (fs.existsSync(tmpPng)) {
-      const buffer = fs.readFileSync(tmpPng);
-      try { fs.unlinkSync(tmpPng); } catch {}
-      const dataUrl = 'data:image/png;base64,' + buffer.toString('base64');
+    if (fs.existsSync(tmpOut)) {
+      const buf = fs.readFileSync(tmpOut);
+      try { fs.unlinkSync(tmpOut); } catch {}
+      const dataUrl = 'data:image/png;base64,' + buf.toString('base64');
       iconCache.set(appPath, dataUrl);
       return dataUrl;
     }
@@ -139,9 +178,9 @@ function extractDarwinIcon(appPath) {
   return null;
 }
 
-function getAppIconDataUrl(appPathOrName) {
-  if (!appPathOrName || typeof appPathOrName !== 'string') return '';
-  const resolved = resolveAppPath(appPathOrName);
+function getAppIconDataUrl(appNameOrPath) {
+  if (!appNameOrPath) return '';
+  const resolved = resolveAppPath(appNameOrPath);
   if (resolved) {
     const icon = extractDarwinIcon(resolved);
     if (icon) return icon;
@@ -150,32 +189,35 @@ function getAppIconDataUrl(appPathOrName) {
 }
 
 function getLetterSvgIcon(name) {
-  const clean = (name || 'App').trim().replace(/^(com|org|net|io)\.[^.]+\./i, '');
-  const letter = (clean[0] || 'A').toUpperCase();
+  const char = (name || '?').replace(/^[._]/, '').trim().charAt(0).toUpperCase() || '?';
   const colors = [
-    ['#3B82F6', '#1D4ED8'],
-    ['#10B981', '#047857'],
-    ['#8B5CF6', '#6D28D9'],
-    ['#F59E0B', '#B45309'],
-    ['#EC4899', '#BE185D'],
-    ['#06B6D4', '#0E7490']
+    ['#3b82f6', '#1d4ed8'],
+    ['#10b981', '#047857'],
+    ['#8b5cf6', '#6d28d9'],
+    ['#f59e0b', '#d97706'],
+    ['#ec4899', '#be185d'],
+    ['#06b6d4', '#0e7490']
   ];
-  const colorIndex = (letter.charCodeAt(0) || 0) % colors.length;
-  const [c1, c2] = colors[colorIndex];
-  return 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
-  <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="${c1}" />
-      <stop offset="100%" stop-color="${c2}" />
-    </linearGradient>
-  </defs>
-  <rect width="48" height="48" rx="10" fill="url(#g)" />
-  <text x="24" y="31" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" fill="#FFFFFF" text-anchor="middle">${letter}</text>
-</svg>`);
+  const idx = Math.abs((char.codePointAt(0) || 0) % colors.length);
+  const [c1, c2] = colors[idx];
+
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">' +
+    '<defs>' +
+    '<linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">' +
+    '<stop offset="0%" stop-color="' + c1 + '"/>' +
+    '<stop offset="100%" stop-color="' + c2 + '"/>' +
+    '</linearGradient>' +
+    '</defs>' +
+    '<rect width="48" height="48" rx="10" fill="url(#g)"/>' +
+    '<text x="50%" y="54%" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="bold" fill="#ffffff" dominant-baseline="middle" text-anchor="middle">' +
+    char +
+    '</text>' +
+    '</svg>';
+
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
 module.exports = {
-  buildBundleIndex,
   resolveAppPath,
   extractDarwinIcon,
   getAppIconDataUrl,

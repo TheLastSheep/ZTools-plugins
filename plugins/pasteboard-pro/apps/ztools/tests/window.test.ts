@@ -285,7 +285,7 @@ describe("ZTools shelf lifecycle", () => {
     expect(calls).toContain("bounds:-1920,800,1920,280");
     expect(calls).toContain(`script:${waitForWindowReadyScript}`);
     expect(calls).toContain("hide:false");
-    expect(calls.slice(-2)).toEqual(["show", "focus"]);
+    expect(calls.slice(-3)).toEqual(["show", "focus", "bounds:-1920,800,1920,280"]);
     manager.setContentProtection(false);
     expect(calls.at(-1)).toBe("protect:false");
   });
@@ -466,6 +466,41 @@ describe.each(["shelf", "panel"] as const)("%s first reveal", (kind) => {
     await vi.waitFor(() => expect(second.show).toHaveBeenCalledTimes(1));
     expect(first.close).toHaveBeenCalledTimes(1);
     expect(first.show).not.toHaveBeenCalled();
+  });
+
+  it("corrects the native show/focus offset before restoring opacity", async () => {
+    const { windows, open } = setup();
+    const handle = open();
+    const expected = kind === "shelf"
+      ? { x: 0, y: 620, width: 1440, height: 280 }
+      : { x: 370, y: 132, width: 700, height: 660 };
+    let bounds = { ...expected };
+    let opacity = 1;
+    const order: string[] = [];
+    handle.setOpacity = vi.fn(value => {
+      opacity = value;
+      order.push(`opacity:${value}`);
+      if (value === 1) expect(bounds).toEqual(expected);
+    });
+    handle.getBounds = () => bounds;
+    vi.mocked(handle.show).mockImplementation(() => {
+      expect(opacity).toBe(0);
+      order.push("show");
+      bounds = { ...bounds, x: 14 }; // Observed native show() relocation.
+    });
+    vi.mocked(handle.focus).mockImplementation(() => { order.push("focus"); });
+    vi.mocked(handle.setBounds).mockImplementation((next, animate) => {
+      expect(opacity).toBe(0);
+      expect(animate).toBe(false);
+      order.push("bounds");
+      bounds = { ...next };
+    });
+    windows[0]!.domReady();
+    await Promise.resolve();
+    windows[0]!.contentReady();
+    await vi.waitFor(() => expect(handle.setOpacity).toHaveBeenLastCalledWith(1));
+    expect(order).toEqual(["opacity:0", "show", "focus", "bounds", "opacity:1"]);
+    expect(bounds).toEqual(expected);
   });
 
   it("closes a failed renderer so a subsequent activation can retry", async () => {

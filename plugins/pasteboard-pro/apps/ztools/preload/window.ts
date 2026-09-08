@@ -50,7 +50,9 @@ export interface BrowserWindowHandle {
   show(): void;
   focus(): void;
   close(): void;
-  setBounds(bounds: Rect): void;
+  setBounds(bounds: Rect, animate?: boolean): void;
+  getBounds?(): Rect;
+  setOpacity?(opacity: number): void;
   setContentProtection(enabled: boolean): void;
 }
 
@@ -87,17 +89,20 @@ const PANEL_SIZES: Readonly<Record<AuxiliaryPanel, Readonly<{ width: number; hei
   editor: { width: 660, height: 520 },
 };
 
+const requestedWindowBounds = new WeakMap<BrowserWindowHandle, BrowserWindowOptions>();
+
 function setWindowBounds(
   handle: BrowserWindowHandle,
   options: BrowserWindowOptions,
 ): void {
   if (handle.isDestroyed()) return;
+  requestedWindowBounds.set(handle, options);
   handle.setBounds({
     x: options.x,
     y: options.y,
     width: options.width,
     height: options.height,
-  });
+  }, false);
 }
 
 function scheduleBoundsCorrection(
@@ -105,9 +110,29 @@ function scheduleBoundsCorrection(
   options: BrowserWindowOptions,
 ): void {
   for (const delay of [50, 250, 750]) {
-    const timer = globalThis.setTimeout(() => setWindowBounds(handle, options), delay);
+    const timer = globalThis.setTimeout(() => {
+      if (handle.isDestroyed()) return;
+      const target = requestedWindowBounds.get(handle) ?? options;
+      const actual = handle.getBounds?.();
+      if (actual !== undefined && actual.x === target.x && actual.y === target.y &&
+        actual.width === target.width && actual.height === target.height) return;
+      setWindowBounds(handle, target);
+    }, delay);
     (timer as unknown as { unref?: () => void }).unref?.();
   }
+}
+
+// On macOS, show() can move an off-primary-screen window even when its
+// hidden bounds are correct. Materialize it at zero opacity, then correct the
+// native frame after show/focus before exposing any pixels. Older hosts without
+// opacity support still receive the immediate post-show correction.
+function revealWindow(handle: BrowserWindowHandle): void {
+  handle.setOpacity?.(0);
+  handle.show();
+  handle.focus();
+  const bounds = requestedWindowBounds.get(handle);
+  if (bounds !== undefined) setWindowBounds(handle, bounds);
+  handle.setOpacity?.(1);
 }
 
 // ZTools invokes its DOM-ready callback once. Never reload or reveal the window
@@ -130,8 +155,7 @@ function createReadyWindow(
         await handle.webContents.executeJavaScript(waitForWindowReadyScript);
         if (handle.isDestroyed() || !isCurrent(handle)) return;
         onReady(handle);
-        handle.show();
-        handle.focus();
+        revealWindow(handle);
       } catch (error) {
         // A closed/replaced window must never steal focus when its work settles.
         if (handle.isDestroyed() || !isCurrent(handle)) return;
@@ -317,8 +341,7 @@ export class ShelfWindowManager {
       scheduleBoundsCorrection(this.current, windowOptions);
       this.current.setContentProtection(options.contentProtection);
       if (this.readyHandles.has(this.current)) {
-        this.current.show();
-        this.current.focus();
+        revealWindow(this.current);
       }
       return this.current;
     }
@@ -412,8 +435,7 @@ export class PanelWindowManager {
       setWindowBounds(this.current.handle, windowOptions);
       scheduleBoundsCorrection(this.current.handle, windowOptions);
       if (this.readyHandles.has(this.current.handle)) {
-        this.current.handle.show();
-        this.current.handle.focus();
+        revealWindow(this.current.handle);
       }
       return this.current.handle;
     }

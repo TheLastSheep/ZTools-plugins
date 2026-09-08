@@ -107,7 +107,7 @@ PB_BENCH_REF=bd12eb67 PLAYWRIGHT_CHANNEL=chrome pnpm exec playwright test --conf
 
 ## 窗口首次显示
 
-Shelf 和独立面板以隐藏状态创建。宿主 DOM-ready 后等待 renderer 的 `pasteboard-pro:window-ready` 信号；Vue 在主题、首屏数据和 DOM 更新完成后发出该信号。已就绪标记支持晚到的宿主回调，窗口不再主动刷新。加载期间关闭或替换窗口不会在异步加载结束后抢焦点；初始化失败时显示可关闭的错误提示。
+Shelf 和独立面板以隐藏状态创建。宿主 DOM-ready 后等待 renderer 的 `pasteboard-pro:window-ready` 信号；Vue 在主题、首屏数据和 DOM 更新完成后发出该信号。已就绪标记支持晚到的宿主回调，窗口不再主动刷新。macOS 的首次 `show()` 可能重新放置外接屏窗口，因此显示时先设为透明，调用 show/focus 后重新校准最新屏幕坐标，再恢复可见；尺寸补偿仅在实际 bounds 不匹配时执行。旧宿主不提供透明度 API 时仍立即校准显示后的坐标。加载期间关闭或替换窗口不会在异步加载结束后抢焦点；初始化失败时显示可关闭的错误提示。
 
 `apps/ztools/tests/window.test.ts` 覆盖首次显示、连续打开、关闭重开和加载失败；`tests/performance/window-startup.spec.ts` 对生产 renderer 验证延迟主题/历史、空历史、错误状态、独立编辑窗口以及万条历史搜索。浏览器测试不代替 ZTools 原生窗口的视觉验收。
 

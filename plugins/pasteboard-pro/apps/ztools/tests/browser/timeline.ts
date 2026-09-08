@@ -1,6 +1,6 @@
 import { createApp, h, nextTick, ref, shallowRef } from "vue";
 import Timeline from "../../src/components/Timeline.vue";
-import { reorderItemGroupIds } from "../../src/list-order";
+import { reorderItemGroupIds, type ListReorderRequest } from "../../src/list-order";
 import type { PasteItem } from "@pasteboard-pro/core";
 import "../../src/styles/tokens.css";
 import "../../src/styles/layout.css";
@@ -21,7 +21,7 @@ const makeItem = (index: number): PasteItem => ({
 const items = shallowRef(Array.from({ length: count }, (_, index) => makeItem(index)));
 const selected = ref<string[]>([]);
 const focused = ref<string>();
-const timeline = ref<InstanceType<typeof Timeline>>();
+const timeline = ref<{ focusItem(itemId: string): Promise<void> }>();
 const thumbnailIds: string[] = [];
 const latest: string[] = [];
 (window as any).pasteboardPro = {
@@ -52,7 +52,7 @@ createApp({
       focused.value = id;
     },
     onLatestVisible: (id: string) => latest.push(id),
-    onReorder: ({ sourceIds, targetId, position }) => {
+    onReorder: ({ sourceIds, targetId, position }: ListReorderRequest) => {
       const byId = new Map(items.value.map((item) => [item.id, item]));
       items.value = reorderItemGroupIds(items.value.map((item) => item.id), sourceIds, targetId, position)
         .map((id) => byId.get(id)!);

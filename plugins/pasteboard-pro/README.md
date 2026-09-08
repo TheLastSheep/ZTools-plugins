@@ -89,6 +89,28 @@ pnpm verify:visual-artifact
 
 仓库通用构建器会读取插件根目录的 `plugin.json`，在对应平台 runner 上构建；macOS 编译并临时签名 Vision helper，Windows/Linux 跳过该 helper 并使用对应平台命令，最后从 `dist/ztools` 打包 ZIP。native 构建逻辑仍限制在插件目录内。
 
+## 大数据量列表回归
+
+ZTools 时间线按可视范围动态挂载 30～50 张卡片（结果不足 30 条时全部挂载，超大视口优先覆盖完整可视范围），支持横向、纵向与紧凑模式。键盘定位按完整列表索引滚动；拖拽只保留已挂载的源卡片，选中集合仍包含屏幕外记录。搜索始终针对全部已加载记录，挂载数量不会截断搜索结果。历史刷新请求会合并，查询与原生文件拖拽索引共用一次数据库读取。
+
+```bash
+# 启动时序用例直接验证生产 renderer，先生成它：
+pnpm --filter @pasteboard-pro/ztools build:renderer
+pnpm exec playwright test --config playwright.performance.config.ts
+# 如本地没有 Playwright 自带浏览器，可使用已安装的 Chrome：
+PLAYWRIGHT_CHANNEL=chrome pnpm exec playwright test --config playwright.performance.config.ts
+# 可选：与虚拟列表改动之前的提交比较相同 10,000 条记录的组件挂载耗时
+PB_BENCH_REF=bd12eb67 PLAYWRIGHT_CHANNEL=chrome pnpm exec playwright test --config playwright.performance.config.ts
+```
+
+报告位于 `artifacts/virtual-timeline/`。基准仅测量列表组件挂载，不包含数据库、IPC 和宿主窗口创建时间。当前历史仍一次读取最多 10,000 条；本次没有实现数据库游标分页。
+
+## 窗口首次显示
+
+Shelf 和独立面板以隐藏状态创建。宿主 DOM-ready 后等待 renderer 的 `pasteboard-pro:window-ready` 信号；Vue 在主题、首屏数据和 DOM 更新完成后发出该信号。已就绪标记支持晚到的宿主回调，窗口不再主动刷新。加载期间关闭或替换窗口不会在异步加载结束后抢焦点；初始化失败时显示可关闭的错误提示。
+
+`apps/ztools/tests/window.test.ts` 覆盖首次显示、连续打开、关闭重开和加载失败；`tests/performance/window-startup.spec.ts` 对生产 renderer 验证延迟主题/历史、空历史、错误状态、独立编辑窗口以及万条历史搜索。浏览器测试不代替 ZTools 原生窗口的视觉验收。
+
 ## 目录结构
 
 ```text

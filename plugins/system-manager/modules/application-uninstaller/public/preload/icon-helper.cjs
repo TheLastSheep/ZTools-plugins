@@ -97,18 +97,26 @@ function resolveAppPath(query) {
   const cleanQuery = normalizeKey(lower);
   if (cleanQuery && cleanQuery.length >= 3) {
     if (idx.has(cleanQuery)) return idx.get(cleanQuery);
-    // 仅在长度相近或存在明确前缀/后缀包含时进行匹配，且 cleanKey 必须具备实质长度（>=3）
     for (const [key, appPath] of idx.entries()) {
       const cleanKey = normalizeKey(key);
       if (cleanKey && cleanKey.length >= 3) {
         if (cleanKey === cleanQuery) {
           return appPath;
         }
-        // 仅在严格相等时直接返回，避免 ShipIt / Agent / Helper 等被错误匹配
-        if (cleanKey === cleanQuery) {
-          return appPath;
-        }
       }
+    }
+  }
+
+  // 尝试按点分反向解析父级 Bundle ID（如 com.figma.Desktop.ShipIt -> com.figma.Desktop）
+  if (trimmed.includes('.')) {
+    const parts = trimmed.split('.');
+    while (parts.length > 2) {
+      parts.pop();
+      const parentQuery = parts.join('.');
+      const pLower = parentQuery.toLowerCase();
+      if (idx.has(pLower)) return idx.get(pLower);
+      const pClean = normalizeKey(pLower);
+      if (pClean && idx.has(pClean)) return idx.get(pClean);
     }
   }
 

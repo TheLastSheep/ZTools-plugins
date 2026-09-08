@@ -207,7 +207,7 @@ function render(result) {
   state.candidates = result.candidates || [];
   elements.totalSize.textContent = formatBytes(result.totalBytes || 0);
   elements.scanMeta.textContent = `${state.candidates.length} 项候选 · ${new Date().toLocaleTimeString('zh-CN')}`;
-  elements.candidateList.replaceChildren();
+  elements.candidateList.innerHTML = "";
 
   if (result.warnings?.length) {
     elements.warnings.hidden = false;
@@ -272,7 +272,10 @@ function render(result) {
       const reveal = node.querySelector('.reveal-button');
       reveal.addEventListener('click', () => {
         if (api?.reveal) {
-          api.reveal(item.location).catch((error) => alert(error?.message || '无法定位路径'));
+          const res = typeof api.reveal === 'function' ? api.reveal({ snapshotId: state.snapshotId, candidateId: item.id }) : null;
+          if (res && typeof res.catch === 'function') {
+            res.catch((error) => alert(error?.message || '无法定位路径'));
+          }
         }
       });
 
@@ -281,6 +284,8 @@ function render(result) {
   });
 
   updateSelection();
+  elements.statusPanel.hidden = true;
+  elements.resultPanel.hidden = false;
 }
 
 async function scan() {

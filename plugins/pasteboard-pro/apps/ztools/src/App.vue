@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, shallowReactive, ref } from "vue";
 
 import {
   PinboardSchema,
@@ -22,6 +22,7 @@ import {
 } from "../preload/window-preferences";
 
 import Shelf from "./components/Shelf.vue";
+import { createHistoryRefresh } from "./history-refresh";
 import Preview from "./components/Preview.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import TextEditor from "./components/TextEditor.vue";
@@ -80,7 +81,8 @@ const edge: DockEdge =
     ? dockValue
     : "floating";
 
-const state = reactive(
+// State methods replace snapshots; avoid proxying every field of 10,000 records.
+const state = shallowReactive(
   createPasteboardState({
     items: [],
     dockEdge: edge,
@@ -98,6 +100,7 @@ const listOrders = ref<ListOrders>({});
 const listOrderSaving = ref(false);
 const previewItemId = ref<string>();
 const status = ref("本地历史已就绪");
+const shelfView = ref<InstanceType<typeof Shelf>>();
 const syncSettings = ref<SyncSettings>(structuredClone(defaultSyncSettings));
 const privacySettings = ref<PrivacySettings>(structuredClone(defaultPrivacySettings));
 const windowPreferences = ref<WindowPreferences>(structuredClone(defaultWindowPreferences));
@@ -198,12 +201,7 @@ function focusLatestItem(itemId: string): void {
 
 function focusListCard(itemId: string | undefined): void {
   if (itemId === undefined) return;
-  void nextTick(() => {
-    const card = [...document.querySelectorAll<HTMLElement>("[data-pb-item-id]")]
-      .find((candidate) => candidate.dataset.pbItemId === itemId);
-    card?.focus({ preventScroll: true });
-    card?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  });
+  void shelfView.value?.focusItem(itemId);
 }
 
 async function pasteItem(
@@ -547,13 +545,21 @@ function onMirrored(event: Event): void {
   status.value = detail.imported > 0 ? `已导入 ${detail.imported} 条记录` : "历史已同步";
 }
 
-async function loadHistory(): Promise<void> {
-  const history = await window.pasteboardPro?.searchHistory("", 10_000);
-  if (history !== undefined) {
-    state.replaceItems(history.items);
-    state.restoreSelection(visibleItems.value.map((item) => item.id));
-    status.value = `已载入 ${history.total} 条记录`;
-  }
+const loadHistory = createHistoryRefresh(
+  async () => window.pasteboardPro?.searchHistory("", 10_000),
+  (history) => {
+    if (history !== undefined) {
+      state.replaceItems(history.items);
+      state.restoreSelection(visibleItems.value.map((item) => item.id));
+      status.value = `已载入 ${history.total} 条记录`;
+    }
+  },
+);
+
+function onHistoryChanged(): void {
+  void loadHistory().catch((error: unknown) => {
+    status.value = error instanceof Error ? error.message : "历史加载失败";
+  });
 }
 
 function selectPinboard(pinboardId: string | undefined): void {
@@ -916,7 +922,7 @@ onMounted(async () => {
   }
   if (!isShelfMode) return;
   window.addEventListener("pasteboard-pro:history-mirrored", onMirrored);
-  window.addEventListener("pasteboard-pro:history-changed", loadHistory);
+  window.addEventListener("pasteboard-pro:history-changed", onHistoryChanged);
   const [settings, savedListOrders] = await Promise.all([
     window.pasteboardPro?.getPrivacySettings(),
     window.pasteboardPro?.getListOrders(),
@@ -946,7 +952,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("focus", onWindowFocus);
   window.removeEventListener("blur", onWindowBlur);
   window.removeEventListener("pasteboard-pro:history-mirrored", onMirrored);
-  window.removeEventListener("pasteboard-pro:history-changed", loadHistory);
+  window.removeEventListener("pasteboard-pro:history-changed", onHistoryChanged);
   window.removeEventListener(
     "pasteboard-pro:window-preferences-changed",
     onWindowPreferencesChanged,
@@ -977,6 +983,7 @@ onBeforeUnmount(() => {
     </section>
     <template v-else>
     <Shelf
+      ref="shelfView"
       v-if="isShelfMode"
       :items="visibleItems"
       :pinboards="pinboards"

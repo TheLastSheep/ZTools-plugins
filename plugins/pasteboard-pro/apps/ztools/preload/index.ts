@@ -651,10 +651,7 @@ const bridge: PasteboardProBridge = {
     ),
   async searchHistory(query = "", limit = 1_000) {
     const normalizedLimit = Math.max(1, Math.min(10_000, Math.floor(limit)));
-    const [result, records] = await Promise.all([
-      store.search(query, normalizedLimit),
-      store.listRecords(),
-    ]);
+    const { result, records } = await store.searchWithRecords(query, normalizedLimit);
     nativeFileDragService.refresh(records);
     return result;
   },

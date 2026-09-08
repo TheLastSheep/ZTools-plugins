@@ -17,6 +17,7 @@ const props = defineProps<{
   pinboards: readonly Pinboard[];
   selected: boolean;
   index: number;
+  total?: number;
   vertical?: boolean;
   compact?: boolean;
   reorderEnabled?: boolean;
@@ -303,6 +304,8 @@ onBeforeUnmount(() => {
     :class="[`paste-card--${item.kind}`, { 'paste-card--selected': selected, 'paste-card--vertical': vertical, 'paste-card--compact': compact, 'paste-card--dragging': reorderDragging || reorderHidden, 'paste-card--reorder-active': reorderActive, 'paste-card--shift-backward': reorderShift < 0, 'paste-card--shift-forward': reorderShift > 0 }]"
     :style="reorderTransformStyle"
     :aria-selected="selected"
+    :aria-posinset="index + 1"
+    :aria-setsize="total"
     :data-pb-item-id="item.id"
     role="option"
     tabindex="0"

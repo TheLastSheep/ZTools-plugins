@@ -384,6 +384,13 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
     query: string,
     limit: number,
   ): Promise<Readonly<{ items: PasteItem[]; total: number }>> {
+    return (await this.searchWithRecords(query, limit)).result;
+  }
+
+  async searchWithRecords(query: string, limit: number): Promise<Readonly<{
+    result: Readonly<{ items: PasteItem[]; total: number }>;
+    records: CanonicalClipboardRecord[];
+  }>> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
       throw new RangeError("Search limit must be an integer between 1 and 10000");
     }
@@ -392,7 +399,7 @@ export class ZToolsCanonicalClipboardStore implements CanonicalClipboardStore {
       records.map((record) => record.item),
       query,
     );
-    return { items: matched.slice(0, limit), total: matched.length };
+    return { result: { items: matched.slice(0, limit), total: matched.length }, records };
   }
 
   async findRecordByItemId(

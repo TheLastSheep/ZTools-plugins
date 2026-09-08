@@ -54,6 +54,9 @@ const emit = defineEmits<{
 
 const style = computed(() => visualState(props.edge, props.density));
 const pinboardStrip = ref<InstanceType<typeof PinboardStrip>>();
+const timeline = ref<InstanceType<typeof Timeline>>();
+
+defineExpose({ focusItem: (itemId: string) => timeline.value?.focusItem(itemId) });
 
 function forwardSelect(itemId: string, extend: boolean, toggle: boolean): void {
   emit("select", itemId, extend, toggle);
@@ -111,6 +114,8 @@ function requestCreatePinboard(): void {
       @assign="forwardAssignPinboard"
     />
     <Timeline
+      ref="timeline"
+      :reorder-enabled="reorderEnabled"
       :items="items"
       :pinboards="pinboards"
       :selected-ids="selectedIds"

@@ -17,6 +17,7 @@
   "features": [
     {
       "code": "pasteboard-pro",
+      "mainHide": true,
       "explain": "打开 Paste剪切板历史",
       "icon": "logo.png",
       "cmds": [

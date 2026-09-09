@@ -114,26 +114,34 @@ function outputFormat(settings: ImageJobSettings, inputPath: string): ImageForma
   return settings.format?.type ?? formatFromPath(inputPath);
 }
 
-function shouldKeepOriginalPngCompression(
+function shouldKeepOriginalWhenCompressing(
   settings: ImageJobSettings,
   inputPath: string,
   format: ImageFormat,
   inputBytes: number,
   outputBytes: number
 ): boolean {
+  // 当用户处于纯压缩或未修改尺寸/裁剪/水印/旋转/格式等几何或内容变换时，
+  // 若压缩后体积反而大于或等于原始文件体积，则保留原始文件防止“越压越大”。
+  const hasContentTransform = Boolean(
+    settings.resize?.width ||
+      settings.resize?.height ||
+      settings.crop ||
+      settings.cropRelative ||
+      settings.rotate !== undefined ||
+      settings.flip ||
+      settings.border?.enabled ||
+      settings.rounded?.enabled ||
+      settings.watermark?.enabled
+  );
+
+  const inputExtFormat = formatFromPath(inputPath);
+  const isSameFormat = format === inputExtFormat;
+
   return Boolean(
     settings.compression &&
-      !settings.format &&
-      !settings.resize &&
-      !settings.crop &&
-      !settings.cropRelative &&
-      settings.rotate === undefined &&
-      !settings.flip &&
-      !settings.border?.enabled &&
-      !settings.rounded?.enabled &&
-      !settings.watermark?.enabled &&
-      format === "png" &&
-      formatFromPath(inputPath) === "png" &&
+      !hasContentTransform &&
+      isSameFormat &&
       outputBytes >= inputBytes
   );
 }
@@ -440,7 +448,7 @@ async function processOne(
     image = applyOutputFormat(image, format, settings);
     const inputStat = await fs.stat(inputPath);
     const { data: encodedBuffer, info: outMetadata } = await image.toBuffer({ resolveWithObject: true });
-    const outputBuffer = shouldKeepOriginalPngCompression(
+    const outputBuffer = shouldKeepOriginalWhenCompressing(
       settings,
       inputPath,
       format,

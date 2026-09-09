@@ -27,7 +27,7 @@ import {
   Trash2,
   XCircle
 } from "lucide-react";
-import { bytesLabel, formatDefinition, FORMAT_DEFINITIONS, PROFILE_COPY, TARGET_GROUPS } from "./lib/formats";
+import { bytesLabel, formatDefinition, FORMAT_DEFINITIONS, TARGET_FORMATS, PROFILE_COPY, TARGET_GROUPS } from "./lib/formats";
 import type {
   ApiEnvelope,
   CollisionPolicy,
@@ -295,7 +295,7 @@ function FormatConverterApp() {
             <p>先检查格式和本机引擎，再执行批量转换。保真、可编辑和 OCR 路线会明确标注，不把有损转换藏起来。</p>
           </div>
           <div className="intro-stats">
-            <div><strong>{FORMAT_DEFINITIONS.length}</strong><span>目标格式</span></div>
+            <div><strong>{TARGET_FORMATS.length}</strong><span>目标格式</span></div>
             <div><strong>{capabilities?.runtimes.filter(item => item.available).length ?? "—"}</strong><span>可用引擎</span></div>
             <div><strong>200</strong><span>单批文件</span></div>
           </div>

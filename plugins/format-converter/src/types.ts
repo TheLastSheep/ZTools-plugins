@@ -1,6 +1,6 @@
 export type FormatId =
   | "docx" | "xlsx" | "pptx" | "pdf"
-  | "png" | "jpeg" | "webp" | "avif" | "tiff" | "gif" | "bmp"
+  | "png" | "jpeg" | "webp" | "avif" | "tiff" | "gif" | "bmp" | "heic"
   | "txt" | "md" | "html" | "csv" | "tsv" | "json";
 
 export type ConversionProfile = "visual" | "editable" | "extract";

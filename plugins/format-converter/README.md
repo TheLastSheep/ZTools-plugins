@@ -11,7 +11,7 @@
 
 ## 首发范围
 
-- 图片：PNG、JPEG、WebP、AVIF、TIFF、GIF、BMP 的读取与常见格式输出。
+- 图片：PNG、JPEG、WebP、AVIF、TIFF、GIF、BMP、HEIC/HEIF 的读取与常见格式输出。
 - 文本与数据：TXT、Markdown、HTML、CSV、TSV、JSON 互转。
 - PDF：文本提取、逐页图片、图片合成 PDF、拆分/合并基础能力。
 - Office：DOCX/XLSX/PPTX 文本与 HTML 提取、PDF/图片导出，以及文本、图片、PDF向 Office 的重建。

@@ -25,6 +25,7 @@ import {
   maxProcessSourcePixels
 } from "./processing-limits";
 import { sharp } from "./sharp-runtime";
+import { prepareCompatibleImageInput } from "./heic-bridge";
 
 const imageExtensions = new Set(["jpg", "jpeg", "png", "webp", "avif", "heif", "heic", "tif", "tiff", "gif"]);
 
@@ -255,9 +256,13 @@ async function applyWatermark(image: Sharp, settings: ImageJobSettings): Promise
     if (!watermark.imagePath) {
       throw new Error("图片水印模式需要先选择水印图片");
     }
+    const { effectivePath: watermarkEffectivePath } = await prepareCompatibleImageInput(watermark.imagePath, {
+      animated: false,
+      limitInputPixels: maxProcessSourcePixels
+    });
     const maxOverlayWidth = Math.max(1, Math.round(width * 0.35));
     const maxOverlayHeight = Math.max(1, Math.round(height * 0.35));
-    const overlayBase = await sharp(watermark.imagePath, {
+    const overlayBase = await sharp(watermarkEffectivePath, {
       animated: false,
       limitInputPixels: maxProcessSourcePixels
     })
@@ -382,14 +387,15 @@ async function processOne(
 
     await ensureDirectory(settings.output.directory);
     const sharpInputOptions = { animated: false, limitInputPixels: maxProcessSourcePixels };
-    const initialMetadata = await sharp(inputPath, sharpInputOptions).metadata();
+    const { effectivePath } = await prepareCompatibleImageInput(inputPath, sharpInputOptions);
+    const initialMetadata = await sharp(effectivePath, sharpInputOptions).metadata();
     if (initialMetadata.format === "gif" && (initialMetadata.pages ?? 1) > 1) {
       throw new Error("暂不支持直接处理多帧 GIF，请先拆分为静态图片或使用 GIF 制作模块");
     }
     const sourceWidth = initialMetadata.autoOrient?.width ?? initialMetadata.width;
     const sourceHeight = initialMetadata.autoOrient?.height ?? initialMetadata.height;
     assertSafeProcessPlan(settings, sourceWidth, sourceHeight);
-    let image = sharp(inputPath, sharpInputOptions).rotate();
+    let image = sharp(effectivePath, sharpInputOptions).rotate();
 
     if (settings.flip === "horizontal" || settings.flip === "both") image = image.flop();
     if (settings.flip === "vertical" || settings.flip === "both") image = image.flip();
@@ -519,7 +525,11 @@ export async function mergeImages(
   const prepared: Array<{ inputPath: string; buffer: Buffer; width: number; height: number; channels: 1 | 2 | 3 | 4 }> = [];
   let preparedBytes = 0;
   for (const inputPath of inputPaths) {
-    const metadata = await sharp(inputPath, {
+    const { effectivePath } = await prepareCompatibleImageInput(inputPath, {
+      animated: false,
+      limitInputPixels: maxMergeSourcePixels
+    });
+    const metadata = await sharp(effectivePath, {
       animated: false,
       limitInputPixels: maxMergeSourcePixels
     }).metadata();
@@ -528,7 +538,7 @@ export async function mergeImages(
       throw new Error("拼图输入图片过大，请减少图片数量、先压缩图片或改用更小尺寸");
     }
 
-    const image = await sharp(inputPath, {
+    const image = await sharp(effectivePath, {
       animated: false,
       limitInputPixels: maxMergeSourcePixels
     })
@@ -630,7 +640,11 @@ export async function createGif(
   const encoder = GIFEncoder();
 
   for (const [index, inputPath] of inputPaths.entries()) {
-    const rgba = await sharp(inputPath, {
+    const { effectivePath } = await prepareCompatibleImageInput(inputPath, {
+      animated: false,
+      limitInputPixels: maxProcessSourcePixels
+    });
+    const rgba = await sharp(effectivePath, {
       animated: false,
       limitInputPixels: maxProcessSourcePixels
     })

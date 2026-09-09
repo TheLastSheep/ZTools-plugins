@@ -48,6 +48,27 @@ describe("paste stack runtime", () => {
     expect(writes).toEqual(["first queued value"]);
   });
 
+  it("writes native file clipboard formats on Windows and Linux", () => {
+    const writes: Array<{ format: string; buffer: Uint8Array }> = [];
+    const clipboard = {
+      write() {},
+      writeText() {},
+      writeImage() {},
+      writeBuffer(format: string, buffer: Uint8Array) {
+        writes.push({ format, buffer });
+      },
+    };
+    const nativeImage = { createFromPath() { throw new Error("unexpected image load"); } };
+    const item = { type: "files" as const, filePaths: ["/tmp/a.txt", "/tmp/b.txt"] };
+
+    expect(writePreparedStackItem(item, clipboard, nativeImage, "win32")).toBe(true);
+    expect(writes[0]?.format).toBe("FileNameW");
+    expect(Buffer.from(writes[0]!.buffer).toString("utf16le")).toContain("/tmp/a.txt");
+    expect(writePreparedStackItem(item, clipboard, nativeImage, "linux")).toBe(true);
+    expect(writes[1]?.format).toBe("text/uri-list");
+    expect(Buffer.from(writes[1]!.buffer).toString("utf8")).toContain("file:///tmp/a.txt");
+  });
+
   it("consumes one persisted item for every released Command-V press", async () => {
     let document: Record<string, unknown> | undefined;
     const stackStore = new ZToolsPasteStackStore({
@@ -293,7 +314,51 @@ describe("paste stack runtime", () => {
     runtime.dispose();
   });
 
-  it("does not resurrect consumed entries after a persistence failure", async () => {
+  it("waits for an explicit retry after accessibility permission is missing", async () => {
+    vi.useFakeTimers();
+    let stopped: ((reason: "accessibility-required" | "exit" | "error") => void) | undefined;
+    let starts = 0;
+    const queuedRecord = historyFixture.find((item) => item.id === "text-old");
+    if (queuedRecord === undefined) throw new Error("Missing text fixture");
+    const runtime = new PasteStackRuntime(
+      new ZToolsPasteStackStore({
+        async get() {
+          return {
+            _id: "pasteboard-pro:paste-stack",
+            type: "pasteboard-pro-paste-stack",
+            state: { direction: "forward", itemIds: ["text-old"] },
+          };
+        },
+        async put() { return { ok: true }; },
+      }),
+      { async findRecordByItemId() {
+        return {
+          item: structuredClone(queuedRecord) as PasteItem,
+          origin: { host: "sync", remoteAvailable: true },
+        };
+      } },
+      { write() {}, writeText() {}, writeImage() {}, writeBuffer() {} },
+      { createFromPath() { throw new Error("unexpected image load"); } },
+      {
+        start(_callback, onStopped) {
+          starts += 1;
+          stopped = onStopped;
+        },
+        stop() {},
+      },
+    );
+
+    await runtime.initialize();
+    stopped?.("accessibility-required");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(starts).toBe(1);
+    runtime.retryGlobalHook();
+    expect(starts).toBe(2);
+    runtime.dispose();
+  });
+
+  it("retries a failed queue snapshot without polling the database", async () => {
+    vi.useFakeTimers();
     let persistedState = { direction: "forward" as const, itemIds: ["text-old"] };
     let rejectNextWrite = true;
     const queuedRecord = historyFixture.find((item) => item.id === "text-old");
@@ -336,10 +401,8 @@ describe("paste stack runtime", () => {
 
     await runtime.initialize();
     expect(pasteHandler?.()).toBe(true);
-    await expect(runtime.refreshFromStore()).resolves.toEqual({
-      direction: "forward",
-      itemIds: [],
-    });
+    await vi.advanceTimersByTimeAsync(250);
     expect(persistedState.itemIds).toEqual([]);
+    runtime.dispose();
   });
 });

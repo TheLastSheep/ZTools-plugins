@@ -3,6 +3,8 @@ import { ref, watch } from "vue";
 
 import type { PasteItem } from "@pasteboard-pro/core";
 
+import { loadItemPreview, previewDataUrl } from "../preview-loader";
+
 const props = defineProps<{ item: PasteItem; standalone?: boolean }>();
 const emit = defineEmits<{
   close: [];
@@ -27,10 +29,10 @@ watch(
     previewMediaType.value = undefined;
     previewError.value = undefined;
     try {
-      const preview = await window.pasteboardPro?.getItemPreview(props.item.id);
+      const preview = await loadItemPreview(window.pasteboardPro, props.item.id);
       if (generation !== previewGeneration || preview == null) return;
       previewMediaType.value = preview.mediaType;
-      previewUrl.value = `data:${preview.mediaType};base64,${preview.dataBase64}`;
+      previewUrl.value = previewDataUrl(preview);
     } catch (error) {
       if (generation === previewGeneration) {
         previewError.value = error instanceof Error ? error.message : String(error);
@@ -71,7 +73,7 @@ watch(
           识别文字
         </button>
         <button v-if="item.kind === 'image' || item.kind === 'files' || item.payload.mediaType === 'application/pdf'" type="button" class="secondary" @click="emit('quickLook', item.id)">
-          Quick Look
+          打开文件
         </button>
         <button type="button" class="secondary" @click="emit('rename', item.id)">重命名</button>
         <button v-if="['text', 'rich_text', 'html', 'url', 'color'].includes(item.kind)" type="button" class="secondary" @click="emit('edit', item.id)">编辑</button>
@@ -166,6 +168,8 @@ pre {
 }
 
 .media {
+  display: grid;
+  place-items: center;
   min-height: 0;
   margin: 14px 0;
   overflow: hidden;
@@ -175,14 +179,22 @@ pre {
 }
 
 .preview-body .media { margin-bottom: 0; }
-.media img,
+.media img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  border: 0;
+  object-fit: contain;
+}
+
 .media object {
   display: block;
   width: 100%;
   height: 100%;
   min-height: 180px;
   border: 0;
-  object-fit: contain;
 }
 
 .ocr-text {
@@ -203,7 +215,7 @@ footer button {
   min-height: 32px;
   padding: 0 16px;
   background: var(--pb-violet);
-  color: white;
+  color: var(--pb-on-accent, white);
 }
 
 footer div {

@@ -31,38 +31,68 @@
       <span class="home-tip">在便利贴内可 Ctrl+滚轮 调字号</span>
     </div>
 
-    <div class="home-list">
-      <div
-        v-for="n in sortedNotes"
-        :key="n.id"
-        class="home-item"
-        @click="$emit('open', n.id)"
+    <div class="home-columns">
+      <HomeColumn
+        title="笔记"
+        empty-text="暂无笔记"
+        :items="notes"
+        tag-type="primary"
+        @open="$emit('open', $event)"
+        @open-sticky="$emit('openSticky', $event)"
+        @change-type="onChangeType"
+        @delete="onDelete"
+        @clear="onClear('note')"
+      />
+
+      <HomeColumn
+        title="待办"
+        empty-text="暂无待办"
+        :items="todos"
+        tag-type="warning"
+        @open="$emit('open', $event)"
+        @open-sticky="$emit('openSticky', $event)"
+        @change-type="onChangeType"
+        @delete="onDelete"
+        @clear="onClear('todo')"
       >
-        <div class="home-item-main">
-          <div class="home-item-title">{{ n.title || '无标题' }}</div>
-          <div class="home-item-meta">{{ formatTime(n.updatedAt) }}</div>
-        </div>
-        <el-button link :icon="Delete" @click.stop="onDelete(n.id)" />
-      </div>
-      <div v-if="!sortedNotes.length" class="home-empty">
-        暂无已保存便签，点击「新建便签」开始
-      </div>
+        <template #count>{{ doneCount }}/{{ todos.length }}</template>
+        <template #prefix="{ item }">
+          <el-checkbox
+            class="home-item-check"
+            :model-value="item.done"
+            @click.stop
+            @change="onToggleDone(item.id)"
+          />
+        </template>
+      </HomeColumn>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Plus, Minus, Delete } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Minus } from '@element-plus/icons-vue'
+import HomeColumn from './components/HomeColumn.vue'
 import { useNotes } from './composables/useNotes'
 import { useSettings } from './composables/useSettings'
 
 defineEmits<{
   (e: 'new'): void
   (e: 'open', id: string): void
+  (e: 'openSticky', id: string): void
 }>()
 
-const { sortedNotes, deleteNote } = useNotes()
+const { sortedNotes, deleteNote, clearByType, toggleDone, changeType } = useNotes()
 const { settings, setMode, setFontSize } = useSettings()
+
+const notes = computed(() => sortedNotes.value.filter((n) => n.type === 'note'))
+const todos = computed(() => {
+  const list = sortedNotes.value.filter((n) => n.type === 'todo')
+  // 未完成在上，已完成在下；各组内按 updatedAt 降序
+  return list.sort((a, b) => Number(a.done) - Number(b.done))
+})
+const doneCount = computed(() => todos.value.filter((n) => n.done).length)
 
 function onMode(v: string | number | boolean | undefined) {
   setMode(v as 'wysiwyg' | 'split')
@@ -76,14 +106,36 @@ function decFont() {
 function onDelete(id: string) {
   deleteNote(id)
 }
+function onToggleDone(id: string) {
+  toggleDone(id)
+}
+function onChangeType(id: string) {
+  changeType(id)
+}
 
-function formatTime(t: number): string {
-  const d = new Date(t)
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  if (d.toDateString() === now.toDateString()) {
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+/** 清空指定类型的便签：二次确认后删除该栏全部条目 */
+async function onClear(type: 'note' | 'todo') {
+  const list = type === 'note' ? notes.value : todos.value
+  if (!list.length) return
+
+  const label = type === 'note' ? '笔记' : '待办'
+  try {
+    await ElMessageBox.confirm(
+      `将删除全部 ${list.length} 条${label}，删除后无法恢复。`,
+      `清空${label}`,
+      {
+        type: 'warning',
+        confirmButtonText: '确认清空',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+        closeOnClickModal: false
+      }
+    )
+  } catch {
+    return // 取消
   }
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+
+  const removed = clearByType(type)
+  if (removed) ElMessage.success(`已删除 ${removed} 条${label}`)
 }
 </script>

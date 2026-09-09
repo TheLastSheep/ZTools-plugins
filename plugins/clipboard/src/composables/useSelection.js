@@ -1,4 +1,9 @@
 import { computed, ref, watch } from 'vue'
+import {
+  clearNativeTextSelection,
+  hasNativeTextSelection,
+  shouldUseNativeCopy
+} from '../utils/nativeCopy.js'
 
 /**
  * @param {import('vue').ComputedRef<Array>} filteredData
@@ -14,9 +19,10 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
   const clipboardListRef = ref(null)
 
   const activeIndex = computed(() => filteredData.value.indexOf(activeItem.value))
-  const selectedItems = computed(() =>
-    filteredData.value.filter(item => selectedItemSet.value.has(item))
-  )
+  const selectedItems = computed(() => {
+    const visibleItems = new Set(filteredData.value)
+    return [...selectedItemSet.value].filter(item => visibleItems.has(item))
+  })
   const selectedCount = computed(() => selectedItems.value.length)
 
   const replaceSelection = (items, active = items[0] || null, anchor = active) => {
@@ -42,7 +48,7 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     }
 
     const visibleItems = new Set(items)
-    const retainedItems = items.filter(item => selectedItemSet.value.has(item))
+    const retainedItems = [...selectedItemSet.value].filter(item => visibleItems.has(item))
     if (retainedItems.length === 0) {
       replaceSelection([items[0]], items[0], items[0])
       return
@@ -50,7 +56,7 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
 
     selectedItemSet.value = new Set(retainedItems)
     if (!visibleItems.has(activeItem.value)) {
-      activeItem.value = retainedItems[0]
+      activeItem.value = retainedItems.at(-1)
     }
     if (!visibleItems.has(selectionAnchor.value)) {
       selectionAnchor.value = activeItem.value
@@ -67,29 +73,36 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
       return
     }
 
-    const start = Math.min(anchorIndex, index)
-    const end = Math.max(anchorIndex, index)
-    const rangeItems = filteredData.value
-      .slice(start, end + 1)
-      .filter(rangeItem => rangeItem.type === item.type)
+    const direction = anchorIndex <= index ? 1 : -1
+    const rangeItems = []
+    for (
+      let rangeIndex = anchorIndex;
+      direction > 0 ? rangeIndex <= index : rangeIndex >= index;
+      rangeIndex += direction
+    ) {
+      const rangeItem = filteredData.value[rangeIndex]
+      if (rangeItem.type === item.type) rangeItems.push(rangeItem)
+    }
 
     replaceSelection(rangeItems, item, selectionAnchor.value)
   }
 
   const toggleItem = (index) => {
     const item = filteredData.value[index]
-    if (!item) return
+    if (!item) return false
+
+    clearNativeTextSelection()
 
     const currentItems = selectedItems.value
     if (currentItems.length > 0 && currentItems[0].type !== item.type) {
       selectSingle(index)
-      return
+      return true
     }
 
     const nextSelection = new Set(selectedItemSet.value)
     if (nextSelection.has(item)) {
       nextSelection.delete(item)
-      const nextActiveItem = filteredData.value.find(candidate => nextSelection.has(candidate)) || null
+      const nextActiveItem = [...nextSelection].at(-1) || null
       activeItem.value = nextActiveItem
       selectionAnchor.value = nextActiveItem
     } else {
@@ -99,16 +112,32 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     }
 
     selectedItemSet.value = nextSelection
+    return true
   }
 
   const handleItemClick = (event, index) => {
+    // A text drag emits click after mouseup; keep both the DOM selection and record selection intact.
+    if (
+      hasNativeTextSelection() &&
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey
+    ) return false
+
     if (event.shiftKey) {
+      clearNativeTextSelection()
       selectRange(index)
     } else if (event.metaKey || event.ctrlKey) {
-      toggleItem(index)
+      return toggleItem(index)
     } else {
       selectSingle(index)
     }
+    return true
+  }
+
+  const handleToggleClick = (event, index) => {
+    if (event.shiftKey) return handleItemClick(event, index)
+    return toggleItem(index)
   }
 
   const handleContextSelection = (index) => {
@@ -153,7 +182,8 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     const item = activeItem.value || filteredData.value[0]
     if (!item) return
     const matchingItems = filteredData.value.filter(candidate => candidate.type === item.type)
-    replaceSelection(matchingItems, item, item)
+    const orderedItems = [item, ...matchingItems.filter(candidate => candidate !== item)]
+    replaceSelection(orderedItems, item, item)
   }
 
   const executeSelected = async (shouldPaste = true) => {
@@ -173,6 +203,18 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
   }
 
   const handleKeydown = (event) => {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === 'c'
+    ) {
+      if (shouldUseNativeCopy(event) || selectedCount.value === 0) return
+      event.preventDefault()
+      executeSelected(false)
+      return
+    }
+
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
       event.preventDefault()
       selectAllOfActiveType()
@@ -246,6 +288,7 @@ export function useSelection(filteredData, tabs, activeTab, writeItems, onDelete
     handleContextSelection,
     handleDoubleClick,
     handleKeydown,
+    handleToggleClick,
     scrollToActiveItem,
     toggleItem,
     copySelected: () => executeSelected(false),

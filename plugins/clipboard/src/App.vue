@@ -111,7 +111,7 @@ const handleDeleteSelected = (items) => {
 const {
   activeIndex, selectedItemSet, selectedCount, clipboardListRef, resetSelection,
   handleItemClick, handleContextSelection, handleDoubleClick,
-  handleKeydown, toggleItem, copySelected, pasteSelected
+  handleKeydown, handleToggleClick, copySelected, pasteSelected
 } = useSelection(filteredData, tabs, activeTab, writeClipboardItems, handleDeleteSelected)
 
 watch(selectedCount, (count, previousCount = 0) => {
@@ -266,6 +266,18 @@ const isAnyModalOpen = computed(() =>
 
 const handleGlobalKeydown = (event) => {
   if (isAnyModalOpen.value) return
+
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === 'f'
+  ) {
+    event.preventDefault()
+    focusSearchInput()
+    return
+  }
+
   handleKeydown(event)
 }
 
@@ -314,7 +326,7 @@ onUnmounted(() => {
         :expanded-items="expandedItems"
         :needs-expand="needsExpand"
         @select="handleItemClick"
-        @toggle-selection="toggleItem"
+        @toggle-selection="handleToggleClick"
         @dblclick="handleDoubleClick"
         @contextmenu="handleContextMenu"
         @toggle-expand="toggleExpand"

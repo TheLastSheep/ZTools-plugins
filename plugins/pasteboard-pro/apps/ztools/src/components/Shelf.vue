@@ -14,6 +14,8 @@ import Toolbar from "./Toolbar.vue";
 
 const props = defineProps<{
   items: readonly PasteItem[];
+  total?: number;
+  hasMore?: boolean;
   pinboards: readonly Pinboard[];
   smartPinboards: readonly SmartPinboard[];
   selectedIds: readonly string[];
@@ -31,6 +33,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:query": [value: string];
+  loadMore: [];
   select: [itemId: string, extend: boolean, toggle: boolean];
   paste: [itemId: string, plainText?: boolean];
   preview: [itemId: string];
@@ -117,6 +120,9 @@ function requestCreatePinboard(): void {
       ref="timeline"
       :reorder-enabled="reorderEnabled"
       :items="items"
+      :total="total ?? items.length"
+      :has-more="hasMore ?? false"
+      @load-more="emit('loadMore')"
       :pinboards="pinboards"
       :selected-ids="selectedIds"
       :focused-id="focusedItemId"

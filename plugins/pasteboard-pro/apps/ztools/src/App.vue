@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, shallowReactive, ref } 
 
 import {
   PinboardSchema,
+  PasteItemSchema,
   type PasteItem,
   type PasteStackAction,
   type PasteStackState,
@@ -24,6 +25,7 @@ import {
 import { markWindowReady } from "../window-ready";
 import Shelf from "./components/Shelf.vue";
 import { createHistoryRefresh } from "./history-refresh";
+import { HistoryPager } from "./history-pager";
 import Preview from "./components/Preview.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import TextEditor from "./components/TextEditor.vue";
@@ -92,6 +94,10 @@ const state = shallowReactive(
 );
 const pinboards = ref<Pinboard[]>([]);
 const query = ref("");
+const pagedHistory = window.pasteboardPro?.searchHistoryPage !== undefined;
+const historyTotal = ref(0);
+const hasMoreHistory = ref(false);
+let queryTimer: ReturnType<typeof setTimeout> | undefined;
 const paused = ref(false);
 const canCaptureScreen = computed(
   () => supportsScreenCapture && !paused.value,
@@ -148,6 +154,7 @@ async function loadDevelopmentFixtures(): Promise<void> {
 
 const visibleItems = computed(() => {
   const items = state.visibleItems;
+  if (pagedHistory) return items;
   const pinboardId = activePinboardId.value;
   const filtered = pinboardId === undefined
     ? items
@@ -170,6 +177,15 @@ const focusedItem = computed<PasteItem | undefined>(() => {
 
 function updateQuery(value: string): void {
   query.value = value;
+  if (pagedHistory) {
+    clearTimeout(queryTimer);
+    // Invalidate the old query immediately; debounce only the next search.
+    historyPager?.invalidate();
+    state.replaceResolvedItems([]);
+    hasMoreHistory.value = false;
+    queryTimer = setTimeout(() => { queryTimer = undefined; void loadPagedHistory(false).catch(reportHistoryError); }, 120);
+    return;
+  }
   state.setQuery(value);
   state.restoreSelection(visibleItems.value.map((item) => item.id));
 }
@@ -230,10 +246,13 @@ async function pasteItems(
   plainText = false,
   combineText = true,
 ): Promise<void> {
-  const items = itemIds.flatMap((itemId) => {
-    const item = visibleItems.value.find((candidate) => candidate.id === itemId);
-    return item === undefined ? [] : [item];
-  });
+  const items = pagedHistory
+    ? (await Promise.all(itemIds.map(id => window.pasteboardPro?.getHistoryItem?.(id))))
+        .flatMap(value => { const result = PasteItemSchema.safeParse(value); return result.success ? [result.data] : []; })
+    : itemIds.flatMap((itemId) => {
+        const item = visibleItems.value.find((candidate) => candidate.id === itemId);
+        return item === undefined ? [] : [item];
+      });
   const combinedContent =
     combineText && items.length === itemIds.length && items.length > 1
       ? combinedTextPasteContent(items)
@@ -277,16 +296,21 @@ function createTextItem(): void {
   });
 }
 
+function itemPanelParams(itemId: string): Record<string, string> {
+  const item = visibleItems.value.find(candidate => candidate.id === itemId);
+  return { itemId, ...(item === undefined ? {} : { fingerprint: item.contentFingerprint }) };
+}
+
 function editItem(itemId: string): void {
-  window.pasteboardPro?.openPanel("editor", { mode: "edit", itemId });
+  window.pasteboardPro?.openPanel("editor", { mode: "edit", ...itemPanelParams(itemId) });
 }
 
 function renameItem(itemId: string): void {
-  window.pasteboardPro?.openPanel("editor", { mode: "rename", itemId });
+  window.pasteboardPro?.openPanel("editor", { mode: "rename", ...itemPanelParams(itemId) });
 }
 
 function openPreview(itemId: string): void {
-  window.pasteboardPro?.openPanel("preview", { itemId });
+  window.pasteboardPro?.openPanel("preview", itemPanelParams(itemId));
 }
 
 async function saveEditor(value: { title: string; text: string }): Promise<void> {
@@ -387,7 +411,7 @@ async function handleEffect(effect: PasteboardKeyboardEffect | null): Promise<vo
   await pasteItems(effect.itemIds, effect.plainText);
 }
 
-function onKeydown(event: KeyboardEvent): void {
+async function onKeydown(event: KeyboardEvent): Promise<void> {
   if (event.isComposing) return;
   if (event.key === "Escape" && (isShelfMode || panelMode !== undefined)) {
     event.preventDefault();
@@ -494,6 +518,15 @@ function onKeydown(event: KeyboardEvent): void {
     );
     return;
   }
+  if (pagedHistory && hasMoreHistory.value &&
+      (event.key === "ArrowRight" || event.key === "ArrowDown") &&
+      state.selection.focus === visibleItems.value.at(-1)?.id) {
+    event.preventDefault();
+    const currentQuery = query.value;
+    const currentBoard = activePinboardId.value;
+    try { await historyPager?.loadMore(); } catch (error) { reportHistoryError(error); return; }
+    if (query.value !== currentQuery || activePinboardId.value !== currentBoard) return;
+  }
   const effect = state.handleKeyboard(
     {
       key: event.key,
@@ -547,7 +580,7 @@ function onMirrored(event: Event): void {
   status.value = detail.imported > 0 ? `已导入 ${detail.imported} 条记录` : "历史已同步";
 }
 
-const loadHistory = createHistoryRefresh(
+const loadLegacyHistory = createHistoryRefresh(
   async () => window.pasteboardPro?.searchHistory("", 10_000),
   (history) => {
     if (history !== undefined) {
@@ -558,6 +591,45 @@ const loadHistory = createHistoryRefresh(
   },
 );
 
+function createPager(): HistoryPager | undefined {
+  if (!pagedHistory) return undefined;
+  return new HistoryPager(
+    request => window.pasteboardPro!.searchHistoryPage!(request),
+    page => {
+      state.replaceResolvedItems(page.items);
+      state.restoreSelection(page.items.map(item => item.id));
+      historyTotal.value = page.total;
+      hasMoreHistory.value = page.nextCursor !== undefined;
+      status.value = `已载入 ${page.items.length} / ${page.total} 条记录`;
+    },
+  );
+}
+const historyPager = createPager();
+function reportHistoryError(error: unknown): void {
+  status.value = error instanceof Error ? error.message : "历史加载失败";
+}
+function loadPagedHistory(preserveCount = true): Promise<void> {
+  return historyPager!.refresh({
+    query: query.value,
+    ...(activePinboardId.value === undefined ? {} : { pinboardId: activePinboardId.value }),
+    orderedIds: [...(listOrders.value[listOrderScope(activePinboardId.value)] ?? [])],
+  }, preserveCount);
+}
+async function loadHistory(): Promise<void> {
+  if (!pagedHistory) return loadLegacyHistory();
+  if (panelMode === "preview" || panelMode === "editor") {
+    const id = params.get("itemId");
+    const item = id === null ? undefined : await window.pasteboardPro?.getHistoryItem?.(id, params.get("fingerprint") ?? undefined);
+    state.replaceResolvedItems(item === undefined ? [] : [item]);
+    return;
+  }
+  await loadPagedHistory();
+}
+function loadMoreHistory(): void {
+  if (queryTimer !== undefined || !hasMoreHistory.value) return;
+  void historyPager?.loadMore().catch(reportHistoryError);
+}
+
 function onHistoryChanged(): void {
   void loadHistory().catch((error: unknown) => {
     status.value = error instanceof Error ? error.message : "历史加载失败";
@@ -566,6 +638,7 @@ function onHistoryChanged(): void {
 
 function selectPinboard(pinboardId: string | undefined): void {
   activePinboardId.value = pinboardId;
+  if (pagedHistory) { void loadPagedHistory(false).catch(reportHistoryError); return; }
   state.restoreSelection(visibleItems.value.map((item) => item.id));
 }
 
@@ -592,8 +665,11 @@ async function reorderVisibleItems(value: ListReorderRequest): Promise<void> {
   state.restoreSelection(nextIds);
   listOrderSaving.value = true;
   try {
-    const saved = await window.pasteboardPro?.saveListOrder(scope, nextIds);
+    const saved = pagedHistory
+      ? await window.pasteboardPro?.reorderHistory?.(value, activePinboardId.value)
+      : await window.pasteboardPro?.saveListOrder(scope, nextIds);
     if (saved !== undefined) listOrders.value = saved;
+    if (pagedHistory) await loadPagedHistory();
     status.value = "列表顺序已保存";
   } catch (error) {
     if (
@@ -966,6 +1042,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  clearTimeout(queryTimer);
+  historyPager?.dispose();
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("pasteboard-pro:paste-stack-changed", onPasteStackChanged);
   window.removeEventListener("focus", onWindowFocus);
@@ -1009,6 +1087,9 @@ onBeforeUnmount(() => {
       ref="shelfView"
       v-if="isShelfMode"
       :items="visibleItems"
+      :total="pagedHistory ? historyTotal : visibleItems.length"
+      :has-more="hasMoreHistory"
+      @load-more="loadMoreHistory"
       :pinboards="pinboards"
       :smart-pinboards="defaultSmartPinboards"
       :selected-ids="state.selection.selected"

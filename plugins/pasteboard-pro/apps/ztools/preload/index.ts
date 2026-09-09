@@ -1,3 +1,8 @@
+import { HistoryRpcClient, HISTORY_QUERY_CHANNEL, HISTORY_RESULT_CHANNEL, type HistoryReply } from "./history-rpc";
+import { reorderItemGroupIds, listOrderScope, type ListReorderRequest } from "../src/list-order";
+import { HistorySearchService } from "./history-search";
+import { rememberRecord, takeRecordChanges } from "./record-index";
+import type { HistoryPage, HistoryRequest } from "./history-page";
 import { readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -171,6 +176,9 @@ type PasteboardProBridge = Readonly<{
   }>;
   captureScreenshot(): Promise<ScreenCaptureImportResult>;
   searchHistory(query?: string, limit?: number): Promise<Readonly<{ items: unknown[]; total: number }>>;
+  searchHistoryPage(request: HistoryRequest): Promise<HistoryPage>;
+  getHistoryItem(itemId: string, fingerprint?: string): Promise<unknown>;
+  reorderHistory(request: ListReorderRequest, pinboardId?: string): Promise<ListOrders>;
   getPrivacySettings(): Promise<PrivacySettings>;
   savePrivacySettings(settings: PrivacySettings): Promise<PrivacySettings>;
   setCapturePause(pause: CapturePauseState): Promise<PrivacySettings>;
@@ -302,6 +310,20 @@ const shelfWindows = new ShelfWindowManager(ztools);
 const panelWindows = new PanelWindowManager(ztools);
 const thumbnailService = new ThumbnailService(store, nativeImage);
 const nativeFileDragService = new NativeFileDragService(store, ztools);
+const historySearch = new HistorySearchService(path.join(__dirname, "history-worker.cjs"), {
+  all: () => store.readHistoryDocuments(),
+  changed: ids => store.readHistoryChanges(ids),
+});
+const historyRpc = !isPrimaryWindow && ztools.sendToParent !== undefined
+  ? new HistoryRpcClient(`${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      (id, request) => ztools.sendToParent!(HISTORY_QUERY_CHANNEL, id, request))
+  : undefined;
+window.addEventListener(HISTORY_RESULT_CHANNEL, event => historyRpc?.receive((event as CustomEvent<HistoryReply>).detail));
+window.addEventListener("beforeunload", () => { historySearch.dispose(); historyRpc?.dispose(); });
+window.addEventListener("pasteboard-pro:history-changed", (event) => {
+  const detail = (event as CustomEvent<unknown>).detail;
+  historySearch.invalidate(Array.isArray(detail) && detail.every(id => typeof id === "string") ? detail : undefined);
+});
 const ocrClient =
   process.platform === "darwin"
     ? createOcrClient({
@@ -437,12 +459,13 @@ function requestShelfEdge(edge: ShelfDockEdge): void {
 
 function broadcastHistoryChanged(): void {
   thumbnailService.invalidateRecordIndex();
-  window.dispatchEvent(new CustomEvent(HISTORY_CHANGED_CHANNEL));
+  const changes = takeRecordChanges(ztools.db.promises);
+  window.dispatchEvent(new CustomEvent(HISTORY_CHANGED_CHANNEL, { detail: changes }));
   if (isPrimaryWindow) {
-    shelfWindows.notifyHistoryChanged();
+    shelfWindows.notifyHistoryChanged(changes);
     return;
   }
-  ztools.sendToParent?.(HISTORY_CHANGED_CHANNEL);
+  ztools.sendToParent?.(HISTORY_CHANGED_CHANNEL, changes);
 }
 
 function broadcastWindowPreferencesChanged(): void {
@@ -569,8 +592,18 @@ if (ownsClipboardHistoryMirror(windowRole)) {
       void repositionShelf(edge).catch(reportSynchronizationError);
     }
   });
-  ipcRenderer.on(HISTORY_CHANGED_CHANNEL, () => {
-    shelfWindows.notifyHistoryChanged();
+  ipcRenderer.on(HISTORY_QUERY_CHANNEL, (_event, id, request) => {
+    if (typeof id !== "string" || id.length > 128 || !isRecord(request)) return;
+    void historySearch.page(request as HistoryRequest).then(
+      page => shelfWindows.notifyHistoryResult({ id, page }),
+      error => shelfWindows.notifyHistoryResult({ id, error: error instanceof Error ? error.message : "历史查询失败" }),
+    );
+  });
+  ipcRenderer.on(HISTORY_CHANGED_CHANNEL, (_event, detail) => {
+    const changes = Array.isArray(detail) && detail.every(id => typeof id === "string") ? detail : undefined;
+    historySearch.invalidate(changes);
+    thumbnailService.invalidateRecordIndex();
+    shelfWindows.notifyHistoryChanged(changes);
   });
   ipcRenderer.on(WINDOW_PREFERENCES_CHANGED_CHANNEL, () => {
     shelfWindows.notifyWindowPreferencesChanged();
@@ -654,6 +687,23 @@ const bridge: PasteboardProBridge = {
     const { result, records } = await store.searchWithRecords(query, normalizedLimit);
     nativeFileDragService.refresh(records);
     return result;
+  },
+  async searchHistoryPage(request) {
+    const page = await (historyRpc === undefined ? historySearch.page(request) : historyRpc.page(request));
+    for (const item of page.items) rememberRecord(ztools.db.promises, item.id, `pasteboard-pro:record:${item.contentFingerprint}`);
+    return page;
+  },
+  async getHistoryItem(itemId, fingerprint) {
+    if (fingerprint !== undefined) rememberRecord(ztools.db.promises, itemId, `pasteboard-pro:record:${fingerprint}`);
+    return (await store.findRecordByItemId(itemId))?.item;
+  },
+  async reorderHistory(request, pinboardId) {
+    const scope = listOrderScope(pinboardId);
+    const orders = await listOrderStore.get();
+    const ids = await historySearch.order({
+      ...(pinboardId === undefined ? {} : { pinboardId }), orderedIds: orders[scope] ?? [],
+    });
+    return listOrderStore.put(scope, reorderItemGroupIds(ids, request.sourceIds, request.targetId, request.position));
   },
   getPrivacySettings: () => privacyStore.get(),
   async savePrivacySettings(settings) {

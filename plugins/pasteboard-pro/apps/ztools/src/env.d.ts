@@ -1,3 +1,5 @@
+import type { ListReorderRequest } from "./list-order";
+import type { HistoryPage, HistoryRequest } from "../preload/history-page";
 /// <reference types="vite/client" />
 
 import type {
@@ -45,6 +47,9 @@ declare global {
         query?: string,
         limit?: number,
       ): Promise<Readonly<{ items: unknown[]; total: number }>>;
+      searchHistoryPage?(request: HistoryRequest): Promise<HistoryPage>;
+      getHistoryItem?(itemId: string, fingerprint?: string): Promise<unknown>;
+      reorderHistory?(request: ListReorderRequest, pinboardId?: string): Promise<ListOrders>;
       getPrivacySettings(): Promise<PrivacySettings>;
       savePrivacySettings(settings: PrivacySettings): Promise<PrivacySettings>;
       setCapturePause(pause: CapturePauseState): Promise<PrivacySettings>;

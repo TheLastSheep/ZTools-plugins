@@ -1,3 +1,4 @@
+import type { HistoryReply } from "./history-rpc";
 import {
   clampShelfBounds,
   type DockEdge,
@@ -381,10 +382,20 @@ export class ShelfWindowManager {
     }
   }
 
-  notifyHistoryChanged(): void {
+  notifyHistoryResult(result: HistoryReply): void {
+    if (this.current === undefined || this.current.isDestroyed()) return;
+    const detail = JSON.stringify(result).replaceAll("<", "\\u003c");
+    void this.current.webContents.executeJavaScript(
+      `window.dispatchEvent(new CustomEvent('pasteboard-pro:history-result', { detail: ${detail} }))`,
+    );
+  }
+
+  notifyHistoryChanged(changes?: readonly string[]): void {
     if (this.current === undefined || this.current.isDestroyed()) return;
     void this.current.webContents.executeJavaScript(
-      "window.dispatchEvent(new CustomEvent('pasteboard-pro:history-changed'))",
+      changes === undefined
+        ? "window.dispatchEvent(new CustomEvent('pasteboard-pro:history-changed'))"
+        : `window.dispatchEvent(new CustomEvent('pasteboard-pro:history-changed', { detail: ${JSON.stringify(changes).replaceAll("<", "\\u003c")} }))`,
     );
   }
 

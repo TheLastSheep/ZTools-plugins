@@ -16,6 +16,8 @@ import { timelineFocusOffset, timelineRange } from "../virtual-timeline";
 const props = withDefaults(
   defineProps<{
     items: readonly PasteItem[];
+    total?: number;
+    hasMore?: boolean;
     pinboards: readonly Pinboard[];
     selectedIds: readonly string[];
     focusedId: string | undefined;
@@ -27,6 +29,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
+  loadMore: [];
   select: [itemId: string, extend: boolean, toggle: boolean];
   paste: [itemId: string];
   preview: [itemId: string];
@@ -145,6 +148,7 @@ function updateFollowLatest(): void {
   if (element == null) return;
   offset.value = scrollOffset(element);
   followLatest.value = offset.value <= LEADING_EDGE_THRESHOLD;
+  if (props.hasMore && offset.value + viewport.value >= (props.items.length - 15) * stride.value) emit("loadMore");
 }
 
 function beginReorder(itemId: string): void {
@@ -312,7 +316,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
             :pinboards="props.pinboards"
             :index="index"
             :selected="selectedIdSet.has(item.id)"
-            :total="props.items.length"
+            :total="props.total ?? props.items.length"
             :vertical="props.vertical"
             :compact="props.compact"
             :reorder-enabled="props.reorderEnabled"

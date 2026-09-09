@@ -135,6 +135,7 @@ export class PasteboardState {
   private items: PasteItem[];
   private readonly explicitOrder: ReadonlyMap<string, number> | undefined;
   private query = "";
+  private resolvedItems = false;
 
   selection: SelectionState;
   pasteStack: PasteStackState;
@@ -156,6 +157,7 @@ export class PasteboardState {
   }
 
   get visibleItems(): PasteItem[] {
+    if (this.resolvedItems) return this.items;
     const items = searchPasteItems(this.items, this.query);
     if (this.query.trim().length > 0 || this.explicitOrder === undefined) {
       return items;
@@ -187,7 +189,13 @@ export class PasteboardState {
     });
   }
 
+  replaceResolvedItems(items: readonly unknown[]): void {
+    this.resolvedItems = true;
+    this.items = items.map(item => PasteItemSchema.parse(item));
+  }
+
   replaceItems(items: readonly unknown[]): void {
+    this.resolvedItems = false;
     this.items = items.map((item) => PasteItemSchema.parse(item));
     const orderedIds = this.visibleItems.map((item) => item.id);
     this.selection = reduceSelection(this.selection, {

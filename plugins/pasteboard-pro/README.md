@@ -62,11 +62,14 @@ Paste剪切板是一款 Paste 风格的本地优先剪贴板历史插件。它�
 ## 本地开发
 
 ```bash
+npm install -g @ztools-center/plugin-cli
 corepack pnpm@9.15.9 install --frozen-lockfile
 corepack pnpm@9.15.9 --filter @pasteboard-pro/ztools dev
 ```
 
-ZTools 开发页面默认由 Vite 启动；ATools 与 ZTools 使用独立 UI，不共享前端框架。
+官方 CLI 1.2.0 提供 `ztools create`、`ztools publish` 和 `ztools pull-contributions`。现有项目通过包内脚本启动 Vite、构建和测试；CLI 没有独立的 dev/build 子命令。独立插件仓库完成提交后使用 `ztools publish`；已经位于中心仓库工作树、且 PR 使用自定义分支时，需要沿用该 PR 的实际 head 分支更新，避免 CLI 固定的 `plugin/<name>` 分支另建 PR。1.2.0 的 `publish --help` 会执行发布流程，不可当作只读帮助命令。
+
+ATools 与 ZTools 使用独立 UI，不共享前端框架。
 
 ## 验证
 
@@ -91,7 +94,11 @@ pnpm verify:visual-artifact
 
 ## 大数据量列表回归
 
-ZTools 时间线按可视范围动态挂载 30～50 张卡片（结果不足 30 条时全部挂载，超大视口优先覆盖完整可视范围），支持横向、纵向与紧凑模式。键盘定位按完整列表索引滚动；拖拽只保留已挂载的源卡片，选中集合仍包含屏幕外记录。搜索始终针对全部已加载记录，挂载数量不会截断搜索结果。历史刷新请求会合并，查询与原生文件拖拽索引共用一次数据库读取。
+ZTools 时间线按可视范围动态挂载 30～50 张卡片（结果不足 30 条时全部挂载，超大视口优先覆盖完整可视范围），支持横向、纵向与紧凑模式。首批加载 50 条，接近末尾时预取下一页；跨页方向键等待页面返回后继续移动，刷新保留已经加载的范围和选择。拖拽排序在完整分组顺序上计算，可保存十万条 ID，避免覆盖未加载记录的顺序。
+
+搜索在主插件窗口持有的 Node Worker 中执行，关闭 Paste 面板后复用缓存；输入合并窗口为 120 ms，过期结果不会覆盖新查询。后台缓存完整正文、HTML、OCR 和规范化搜索字段，沿用共享查询函数的子串、短语和筛选规则，搜索不再受界面已加载记录或一万条限制。返回列表的文本预览截取至 4096 字符；粘贴、批量粘贴、编辑和预览按 ID 读取完整原文。图片缩略图和原生拖拽按记录 ID 读取，不再为每批缩略图全量扫描历史。
+
+分页游标指向带版本的搜索结果快照。数据更新或游标过期时重新查询，避免跳项；新增、编辑、删除和插件 WebDAV 同步通过文档 ID 通知更新缓存。旧宿主或未知变更通知回退为一次完整刷新。
 
 ```bash
 # 启动时序用例直接验证生产 renderer，先生成它：
@@ -103,7 +110,16 @@ PLAYWRIGHT_CHANNEL=chrome pnpm exec playwright test --config playwright.performa
 PB_BENCH_REF=bd12eb67 PLAYWRIGHT_CHANNEL=chrome pnpm exec playwright test --config playwright.performance.config.ts
 ```
 
-报告位于 `artifacts/virtual-timeline/`。基准仅测量列表组件挂载，不包含数据库、IPC 和宿主窗口创建时间。当前历史仍一次读取最多 10,000 条；本次没有实现数据库游标分页。
+浏览器报告位于 `artifacts/virtual-timeline/`，包含十万条模拟数据的生产 Vue 界面、全库搜索、连续输入、分页和键盘回归。打包后的 Node Worker 可单独压测：
+
+```bash
+pnpm --filter @pasteboard-pro/ztools build
+node scripts/benchmark-history-worker.mjs
+```
+
+报告位于 `artifacts/search-capacity-20260908/worker-performance.json`，包括十万条模拟记录中的长文本、HTML、OCR、冷启动、查询往返 P95、调用线程定时器间隔和增量读取次数。该基准不包含 ZTools 数据库 IPC 与原生窗口创建，不代表十万条真实历史在所有机器上的性能保证。
+
+宿主数据库目前没有公开原生游标／limit 查询，本次实现的是 Worker 缓存上的结果分页：主插件首次建立缓存、重载或未知外部变更仍需全量读取一次。数据库加载、宿主迁移、保留策略清理与同步仍可能产生额外全量读取；没有改写历史格式，也没有引入数据库迁移。
 
 ## 窗口首次显示
 

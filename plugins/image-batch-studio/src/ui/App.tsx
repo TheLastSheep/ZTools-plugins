@@ -308,11 +308,17 @@ function ImageBatchWorkbench() {
   }
 
   async function chooseWatermarkImage() {
-    const imagePath = await window.services.chooseWatermarkImage();
-    if (imagePath) {
+    const selected = await window.services.chooseWatermarkImage();
+    if (selected) {
       setSettings((current) => ({
         ...current,
-        watermark: { ...current.watermark!, enabled: true, kind: "image", imagePath }
+        watermark: {
+          ...current.watermark!,
+          enabled: true,
+          kind: "image",
+          imagePath: selected.imagePath,
+          previewUrl: selected.previewUrl
+        }
       }));
     }
   }
@@ -657,7 +663,11 @@ function ImageBatchWorkbench() {
                   onChange={(crop) => updateSettings({ crop })}
                 />
               ) : selectedFile ? (
-                <img className="preview-image" src={window.services.fileUrl(selectedFile.path)} alt="" />
+                <img
+                  className="preview-image"
+                  src={selectedFile.previewUrl || window.services.fileUrl(selectedFile.path)}
+                  alt=""
+                />
               ) : (
                 <div className="preview-empty">
                   <ImagePlus size={34} />
@@ -1116,7 +1126,7 @@ function ManualCropEditor({
     <div ref={stageRef} className="crop-stage" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
       <img
         ref={imgRef}
-        src={window.services.fileUrl(file.path)}
+        src={file.previewUrl || window.services.fileUrl(file.path)}
         alt=""
         draggable={false}
         onDragStart={(event) => event.preventDefault()}

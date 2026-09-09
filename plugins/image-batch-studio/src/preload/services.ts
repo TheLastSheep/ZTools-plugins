@@ -10,14 +10,16 @@ import type {
 } from "../shared/types";
 import { imageDataUrlToBuffer } from "./data-url";
 import { createGif, mergeImages, mergePdfs, processImages } from "./processor";
-import { discoverFiles } from "./file-discovery";
+import { discoverFiles, isBrowserRenderableImage, isImagePath } from "./file-discovery";
 import { hostCompatibility } from "../shared/host-compatibility";
 import { requestZToolsScreenCapture } from "../shared/ztools-screen-capture";
 import { createFileDragGrantStore } from "./file-drag-grants";
 import {
   installSharpRuntime,
+  sharp,
   sharpRuntimeStatus
 } from "./sharp-runtime";
+import crypto from "node:crypto";
 
 declare global {
   interface Window {
@@ -70,7 +72,61 @@ async function resolveLaunchFiles(action: any): Promise<SourceFile[]> {
   const directPaths = payloadPaths(action?.payload);
   const imagePaths = action?.type === "img" ? await imagePayloadToFile(action?.payload) : [];
   if (directPaths.length > 0 || imagePaths.length > 0) await ensureSharpRuntime();
-  return discoverFiles([...directPaths, ...imagePaths]);
+  const files = await discoverFiles([...directPaths, ...imagePaths]);
+  return attachPreviewUrls(files);
+}
+
+const previewCache = new Map<string, string>();
+
+async function getPreviewUrl(filePath: string): Promise<string> {
+  if (isBrowserRenderableImage(filePath)) {
+    return pathToFileURL(filePath).toString();
+  }
+  const cached = previewCache.get(filePath);
+  if (cached) return cached;
+
+  try {
+    const previewDir = path.join(tempRoot, "previews");
+    await fs.mkdir(previewDir, { recursive: true });
+    const hash = crypto.createHash("md5").update(filePath).digest("hex");
+    const previewFilePath = path.join(previewDir, `${hash}.jpg`);
+
+    try {
+      await fs.access(previewFilePath);
+    } catch {
+      await sharp(filePath)
+        .rotate()
+        .resize({
+          width: 1600,
+          height: 1600,
+          fit: "inside",
+          withoutEnlargement: true
+        })
+        .jpeg({ quality: 80 })
+        .toFile(previewFilePath);
+    }
+
+    const url = pathToFileURL(previewFilePath).toString();
+    previewCache.set(filePath, url);
+    return url;
+  } catch (error) {
+    console.error("生成预览图失败:", error);
+    return pathToFileURL(filePath).toString();
+  }
+}
+
+async function attachPreviewUrls(files: SourceFile[]): Promise<SourceFile[]> {
+  return Promise.all(
+    files.map(async (file) => {
+      if (file.type === "image") {
+        return {
+          ...file,
+          previewUrl: await getPreviewUrl(file.path)
+        };
+      }
+      return file;
+    })
+  );
 }
 
 function dispatchRuntimeProgress(progress: SharpRuntimeProgress) {
@@ -106,7 +162,8 @@ const services = {
 
   async resolveFiles(paths: string[]) {
     if (paths.length > 0) await ensureSharpRuntime();
-    return discoverFiles(paths);
+    const files = await discoverFiles(paths);
+    return attachPreviewUrls(files);
   },
 
   runtimeStatus() {
@@ -161,7 +218,8 @@ const services = {
     });
     if (!paths?.length) return [];
     await ensureSharpRuntime();
-    return discoverFiles(paths);
+    const files = await discoverFiles(paths);
+    return attachPreviewUrls(files);
   },
 
   async captureScreen() {
@@ -169,8 +227,9 @@ const services = {
     if (!capture.paths.length) return [];
     await ensureSharpRuntime();
     const files = await discoverFiles(capture.paths);
-    window.dispatchEvent(new CustomEvent("image-batch-screen-capture", { detail: { bounds: capture.bounds, files } }));
-    return files;
+    const filesWithPreview = await attachPreviewUrls(files);
+    window.dispatchEvent(new CustomEvent("image-batch-screen-capture", { detail: { bounds: capture.bounds, files: filesWithPreview } }));
+    return filesWithPreview;
   },
 
   canCaptureScreen() {
@@ -189,7 +248,16 @@ const services = {
       properties: ["openFile"],
       filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "avif", "heif", "heic", "tiff"] }]
     });
-    return paths?.[0];
+    const imagePath = paths?.[0];
+    if (!imagePath) return undefined;
+    await ensureSharpRuntime();
+    const previewUrl = await getPreviewUrl(imagePath);
+    return { imagePath, previewUrl };
+  },
+
+  async getPreviewUrl(filePath: string) {
+    await ensureSharpRuntime();
+    return getPreviewUrl(filePath);
   },
 
   async savePath(defaultPath: string, extensions: string[]) {

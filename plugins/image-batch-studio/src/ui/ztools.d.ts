@@ -19,7 +19,8 @@ export interface ZToolsImageBatchServices {
   captureScreen(): Promise<SourceFile[]>;
   canCaptureScreen(): boolean;
   chooseDirectory(): Promise<string | undefined>;
-  chooseWatermarkImage(): Promise<string | undefined>;
+  chooseWatermarkImage(): Promise<{ imagePath: string; previewUrl: string } | undefined>;
+  getPreviewUrl(filePath: string): Promise<string>;
   savePath(defaultPath: string, extensions: string[]): Promise<string | undefined>;
   getDefaultOutputDirectory(): string;
   fileUrl(filePath: string): string;

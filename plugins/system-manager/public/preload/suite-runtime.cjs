@@ -682,7 +682,7 @@ function createSuiteRuntime(options = {}) {
       scopes: [...AGENT_SCOPES],
       limits: {
         actionTtlMs: ACTION_TTL_MS,
-        authorizationTtlMs: 10 * 60 * 1000,
+        authorizationTtlMs: null,
         inventoryTtlMs: INVENTORY_TTL_MS,
         journalEntries: JOURNAL_MAX_ENTRIES,
         journalTtlMs: JOURNAL_TTL_MS,

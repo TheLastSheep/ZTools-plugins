@@ -42,10 +42,11 @@ function bootstrap(hostWindow, options = {}) {
     agentAccessInstalled: false,
   })
 
-  if (installed.page && installed.page.kind === 'dashboard') {
+  if (installed.page && (installed.page.kind === 'dashboard' || installed.page.kind === 'tool')) {
     try {
       const advanced = require('./advanced-services.cjs')
       hostWindow.systemManagerAdvanced = advanced
+      hostWindow.advancedServices = advanced
     } catch (e) {
       console.warn('Advanced services failed to load:', e)
     }
@@ -78,7 +79,11 @@ function bootstrap(hostWindow, options = {}) {
   if (installed.page.kind === 'dashboard') {
     try {
       const advanced = require('./advanced-services.cjs')
+      if (typeof advanced.initHostApi === 'function') {
+        advanced.initHostApi(hostApi)
+      }
       hostWindow.systemManagerAdvanced = advanced
+      hostWindow.advancedServices = advanced
     } catch (e) {
       console.warn('Advanced services failed to load:', e)
     }

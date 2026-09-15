@@ -1,5 +1,15 @@
 'use strict'
 
+function escapeHtml(str) {
+  if (str == null) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function currentPlatform() {
   const value = `${navigator.userAgentData && navigator.userAgentData.platform || ''} ${navigator.platform || ''} ${navigator.userAgent || ''}`.toLowerCase()
   if (value.includes('mac')) return { id: 'darwin', label: 'macOS' }
@@ -42,12 +52,44 @@ document.querySelectorAll('[data-feature]').forEach((card) => {
   card.addEventListener('auxclick', openInCurrentView)
 })
 
+document.querySelectorAll('[data-quick-tab]').forEach((card) => {
+  card.addEventListener('click', (event) => {
+    event.preventDefault()
+    const targetTab = card.getAttribute('data-quick-tab')
+    const targetNavBtn = document.querySelector(`.tab-nav-item[data-tab="${targetTab}"]`)
+    if (targetNavBtn) {
+      targetNavBtn.click()
+      const pane = document.getElementById(`pane-${targetTab}`)
+      if (pane) {
+        pane.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    } else {
+      const pane = document.getElementById(`pane-${targetTab}`)
+      if (pane) {
+        pane.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        pane.classList.add('pane-highlight-flash')
+        setTimeout(() => pane.classList.remove('pane-highlight-flash'), 1800)
+      }
+    }
+  })
+})
+
+function getAdvanced() {
+  return window.systemManagerAdvanced || window.advancedServices || {}
+}
+
 const AGENT_ACCESS_SCOPE_LABELS = Object.freeze({
   report_export: '报告导出',
   application_removal: '应用/残留处理',
   startup_changes: '启动项变更/撤销',
   system_cleanup: '垃圾移入废纸篓',
   lan_scan: '主动局域网扫描',
+})
+
+const AGENT_ACCESS_MODE_LABELS = Object.freeze({
+  ask: '请求批准',
+  auto: '帮我批准',
+  full: '完全访问权限',
 })
 
 function setupAgentAccess() {
@@ -61,9 +103,10 @@ function setupAgentAccess() {
   const cancelButton = document.querySelector('#agent-access-cancel')
   const confirmButton = document.querySelector('#agent-access-confirm')
   const selectionHint = document.querySelector('#agent-access-selection-hint')
-  const scopeInputs = Array.from(document.querySelectorAll('input[name="agent-scope"]'))
+  const modeInputs = Array.from(document.querySelectorAll('input[name="agent-mode"]'))
+  const legacyScopeInputs = Array.from(document.querySelectorAll('input[name="agent-scope"]'))
 
-  if (!panel || !badge || !statusText || !announcement || !actionButton || !dialog || !form || !cancelButton || !confirmButton || !selectionHint || !scopeInputs.length) return
+  if (!panel || !badge || !statusText || !announcement || !actionButton || !dialog || !form || !cancelButton || !confirmButton || !selectionHint) return
 
   const bridge = window.systemManagerAgentAccess
   const bridgeAvailable = Boolean(
@@ -72,7 +115,7 @@ function setupAgentAccess() {
     typeof bridge.grant === 'function' &&
     typeof bridge.revoke === 'function'
   )
-  let currentState = { available: false, active: false, expiresAt: null, remainingMs: 0, scopes: [] }
+  let currentState = { available: false, active: false, expiresAt: null, remainingMs: 0, mode: null, scopes: [] }
   let deadline = 0
   let countdownTimer = null
   let busy = false
@@ -82,21 +125,26 @@ function setupAgentAccess() {
   function normalizeState(value) {
     const available = Boolean(bridgeAvailable && value && value.available === true)
     const now = Date.now()
-    const parsedExpiry = Date.parse(value && typeof value.expiresAt === 'string' ? value.expiresAt : '')
-    const suppliedRemaining = Number(value && value.remainingMs)
-    const remainingMs = Number.isFinite(suppliedRemaining) ? Math.max(0, suppliedRemaining) : 0
-    const nextDeadline = Number.isFinite(parsedExpiry) ? parsedExpiry : now + remainingMs
+    const hasExpiry = Boolean(value && typeof value.expiresAt === 'string')
+    const parsedExpiry = hasExpiry ? Date.parse(value.expiresAt) : NaN
+    const suppliedRemaining = value && value.remainingMs !== null ? Number(value.remainingMs) : null
+    const remainingMs = Number.isFinite(suppliedRemaining) ? Math.max(0, suppliedRemaining) : null
+    const nextDeadline = Number.isFinite(parsedExpiry) ? parsedExpiry : (remainingMs !== null ? now + remainingMs : null)
     const receivedScopes = value && Array.isArray(value.scopes) ? value.scopes : []
     const scopes = knownScopes.filter((scope) => receivedScopes.includes(scope))
-    const active = Boolean(available && value && value.active === true && nextDeadline > now)
+    const mode = value && typeof value.mode === 'string' ? value.mode : (
+      scopes.length === knownScopes.length ? 'full' : (scopes.length === 0 ? 'ask' : 'auto')
+    )
+    const active = Boolean(available && value && value.active === true && (nextDeadline === null || nextDeadline > now))
 
     return {
       available,
       active,
-      expiresAt: active ? new Date(nextDeadline).toISOString() : null,
-      remainingMs: active ? Math.max(0, nextDeadline - now) : 0,
+      expiresAt: active && nextDeadline !== null ? new Date(nextDeadline).toISOString() : null,
+      remainingMs: active ? remainingMs : 0,
+      mode: active ? mode : null,
       scopes: active ? scopes : [],
-      deadline: active ? nextDeadline : 0,
+      deadline: active ? nextDeadline : null,
     }
   }
 
@@ -113,19 +161,22 @@ function setupAgentAccess() {
 
   function updateCountdown() {
     if (!currentState.active) return
+    const modeLabel = AGENT_ACCESS_MODE_LABELS[currentState.mode] || '已授权'
+    if (deadline === null) {
+      statusText.textContent = `${modeLabel} · 持续生效中`
+      return
+    }
     const remainingMs = Math.max(0, deadline - Date.now())
     if (remainingMs <= 0) {
       applyState(
-        { available: currentState.available, active: false, expiresAt: null, remainingMs: 0, scopes: [] },
+        { available: currentState.available, active: false, expiresAt: null, remainingMs: 0, mode: null, scopes: [] },
         'Agent 授权已过期。'
       )
       return
     }
 
     currentState.remainingMs = remainingMs
-    const scopeNames = currentState.scopes.map((scope) => AGENT_ACCESS_SCOPE_LABELS[scope])
-    const scopeSummary = scopeNames.length ? `${scopeNames.length} 项（${scopeNames.join('、')}）` : '所选范围'
-    statusText.textContent = `已授权 ${scopeSummary} · 剩余 ${formatRemaining(remainingMs)}`
+    statusText.textContent = `${modeLabel} · 剩余 ${formatRemaining(remainingMs)}`
   }
 
   function renderState() {
@@ -142,7 +193,8 @@ function setupAgentAccess() {
 
     if (currentState.active) {
       panel.dataset.agentAccessState = 'active'
-      badge.textContent = '已授权'
+      panel.dataset.agentAccessMode = currentState.mode || 'auto'
+      badge.textContent = AGENT_ACCESS_MODE_LABELS[currentState.mode] || '已授权'
       actionButton.textContent = busy ? '正在撤销…' : '撤销授权'
       actionButton.disabled = busy
       actionButton.removeAttribute('aria-controls')
@@ -152,9 +204,10 @@ function setupAgentAccess() {
     }
 
     panel.dataset.agentAccessState = 'inactive'
+    delete panel.dataset.agentAccessMode
     badge.textContent = '未授权'
     statusText.textContent = '未授权 · 默认关闭'
-    actionButton.textContent = '选择授权范围'
+    actionButton.textContent = '选择授权模式'
     actionButton.disabled = busy
     actionButton.setAttribute('aria-controls', 'agent-access-dialog')
     actionButton.setAttribute('aria-haspopup', 'dialog')
@@ -172,24 +225,55 @@ function setupAgentAccess() {
     if (currentState.active) countdownTimer = window.setInterval(updateCountdown, 1000)
   }
 
-  function selectedScopes() {
-    return scopeInputs.filter((input) => input.checked).map((input) => input.value)
+  function selectedMode() {
+    const checked = modeInputs.find((input) => input.checked)
+    return checked ? checked.value : 'auto'
   }
 
   function updateSelection() {
-    const count = selectedScopes().length
-    confirmButton.disabled = busy || count === 0
+    confirmButton.disabled = busy
     selectionHint.removeAttribute('data-status')
-    selectionHint.textContent = count === 0
-      ? '未选择任何范围。请至少选择一项。'
-      : `已选择 ${count} 项，将授权 10 分钟。`
+    const mode = selectedMode()
+    const modeName = AGENT_ACCESS_MODE_LABELS[mode] || '授权'
+    selectionHint.textContent = `已选择「${modeName}」，确认后立即生效。`
   }
 
   function setDialogBusy(isBusy) {
     busy = isBusy
-    scopeInputs.forEach((input) => { input.disabled = isBusy })
+    modeInputs.forEach((input) => { input.disabled = isBusy })
+    legacyScopeInputs.forEach((input) => { input.disabled = isBusy })
     cancelButton.disabled = isBusy
     confirmButton.disabled = isBusy
+  }
+
+  const STORAGE_KEY = 'ztools_system_manager_agent_access_v1'
+  function savePersistedConfig(config) {
+    try {
+      const ztoolsDb = window.ztools && window.ztools.dbStorage
+      if (ztoolsDb && typeof ztoolsDb.setItem === 'function') {
+        if (config) ztoolsDb.setItem(STORAGE_KEY, config)
+        else if (typeof ztoolsDb.removeItem === 'function') ztoolsDb.removeItem(STORAGE_KEY)
+      }
+    } catch {}
+    try {
+      if (config) localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+      else localStorage.removeItem(STORAGE_KEY)
+    } catch {}
+  }
+
+  function loadPersistedConfig() {
+    try {
+      const ztoolsDb = window.ztools && window.ztools.dbStorage
+      if (ztoolsDb && typeof ztoolsDb.getItem === 'function') {
+        const val = ztoolsDb.getItem(STORAGE_KEY)
+        if (val) return typeof val === 'string' ? JSON.parse(val) : val
+      }
+    } catch {}
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return null
   }
 
   function restoreActionFocus() {
@@ -201,7 +285,8 @@ function setupAgentAccess() {
     form.reset()
     updateSelection()
     dialog.showModal()
-    scopeInputs[0].focus({ preventScroll: true })
+    const firstActiveInput = modeInputs[0] || legacyScopeInputs[0]
+    if (firstActiveInput) firstActiveInput.focus({ preventScroll: true })
   }
 
   function revokeAccess() {
@@ -213,6 +298,7 @@ function setupAgentAccess() {
       .then((nextState) => {
         const normalized = normalizeState(nextState)
         if (!normalized.available || normalized.active) throw new Error('revoke-not-confirmed')
+        savePersistedConfig(null)
         busy = false
         applyState(nextState, 'Agent 授权已撤销。')
         restoreActionFocus()
@@ -231,7 +317,8 @@ function setupAgentAccess() {
     else openDialog()
   })
 
-  scopeInputs.forEach((input) => input.addEventListener('change', updateSelection))
+  modeInputs.forEach((input) => input.addEventListener('change', updateSelection))
+  legacyScopeInputs.forEach((input) => input.addEventListener('change', updateSelection))
 
   cancelButton.addEventListener('click', () => dialog.close('cancel'))
 
@@ -245,26 +332,23 @@ function setupAgentAccess() {
 
   form.addEventListener('submit', (event) => {
     event.preventDefault()
-    const scopes = selectedScopes()
-    if (!scopes.length || busy) {
-      selectionHint.dataset.status = 'error'
-      selectionHint.textContent = '请至少选择一项授权范围。'
-      if (!busy) scopeInputs[0].focus({ preventScroll: true })
-      return
-    }
+    if (busy) return
 
+    const mode = selectedMode()
     setDialogBusy(true)
     selectionHint.removeAttribute('data-status')
-    selectionHint.textContent = `正在授权 ${scopes.length} 项…`
+    selectionHint.textContent = `正在授权「${AGENT_ACCESS_MODE_LABELS[mode]}」…`
+
     Promise.resolve()
-      .then(() => bridge.grant({ scopes }))
+      .then(() => bridge.grant({ mode }))
       .then((nextState) => {
         const normalized = normalizeState(nextState)
         if (!normalized.available || !normalized.active) throw new Error('grant-not-confirmed')
+        savePersistedConfig({ mode, grantedAt: Date.now() })
         setDialogBusy(false)
         dialog.close('granted')
         restoreActionFocus()
-        applyState(nextState, `Agent 已获得 ${scopes.length} 项授权，有效期 10 分钟。`)
+        applyState(nextState, `Agent 已切换为「${AGENT_ACCESS_MODE_LABELS[mode]}」模式，常驻生效。`)
       })
       .catch(() => {
         setDialogBusy(false)
@@ -280,8 +364,17 @@ function setupAgentAccess() {
     return
   }
 
-  Promise.resolve()
-    .then(() => bridge.getState())
+  function restorePersistedAccess() {
+    const saved = loadPersistedConfig()
+    if (saved && saved.mode && ['ask', 'auto', 'full'].includes(saved.mode)) {
+      return Promise.resolve()
+        .then(() => bridge.grant({ mode: saved.mode }))
+        .catch(() => bridge.getState())
+    }
+    return Promise.resolve().then(() => bridge.getState())
+  }
+
+  restorePersistedAccess()
     .then(applyState)
     .catch(() => applyState(null))
 }
@@ -293,7 +386,7 @@ setupAgentAccess()
 // ============================================================================
 function setupQuickToolkit() {
   function getAdv() {
-    return window.systemManagerAdvanced || {}
+    return window.systemManagerAdvanced || window.advancedServices || {}
   }
 
   // 0. 现代化选项卡切换逻辑（收敛界面布局，告别全部平铺下滑）
@@ -822,7 +915,9 @@ function setupQuickToolkit() {
       loadBattery()
     })
   }
+
 }
+
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', setupQuickToolkit)
@@ -831,3 +926,482 @@ if (document.readyState === 'loading') {
 }
 
 
+
+
+/* ==========================================================================
+   Apple M5 风格核心硬件实时工况看板驱动模块
+   ========================================================================== */
+
+let hwHistoryCpuUser = [18, 16, 17, 18, 25, 23, 30, 27, 24, 21, 22, 28, 30, 23, 22, 27, 26, 29, 27, 35, 31, 33, 29, 34];
+let hwHistoryCpuSys = [7, 6, 7, 8, 9, 8, 11, 10, 9, 8, 8, 10, 11, 8, 7, 11, 9, 11, 9, 12, 10, 10, 9, 12];
+
+function generateSvgSmoothPath(dataPoints, width = 240, height = 130, maxVal = 100) {
+  if (!dataPoints || dataPoints.length < 2) return { d: '', areaD: '', lastX: 0, lastY: 0 };
+  const step = width / (dataPoints.length - 1);
+  const coords = dataPoints.map((val, idx) => {
+    const x = idx * step;
+    const clamped = Math.max(0, Math.min(maxVal, val));
+    const y = height - (clamped / maxVal) * (height - 24) - 10;
+    return { x, y };
+  });
+
+  let d = `M ${coords[0].x.toFixed(1)},${coords[0].y.toFixed(1)}`;
+  for (let i = 1; i < coords.length; i++) {
+    const prev = coords[i - 1];
+    const curr = coords[i];
+    const cx = (prev.x + curr.x) / 2;
+    d += ` Q ${prev.x.toFixed(1)},${prev.y.toFixed(1)} ${cx.toFixed(1)},${((prev.y + curr.y) / 2).toFixed(1)}`;
+    d += ` T ${curr.x.toFixed(1)},${curr.y.toFixed(1)}`;
+  }
+  const lastCoord = coords[coords.length - 1];
+  const areaD = `${d} L ${lastCoord.x.toFixed(1)},${height} L ${coords[0].x.toFixed(1)},${height} Z`;
+  return { d, areaD, lastX: lastCoord.x, lastY: lastCoord.y };
+}
+
+function updateDonutArc(elementId, percent, circumference = 439.82, startAngle = 0) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const p = Math.max(0, Math.min(100, percent));
+  const arcLength = (p / 100) * circumference;
+  el.style.strokeDasharray = `${arcLength.toFixed(1)} ${(circumference - arcLength).toFixed(1)}`;
+  el.style.strokeDashoffset = `-${((startAngle / 100) * circumference).toFixed(1)}`;
+}
+
+function renderProcRow(proc, valText, onKill, pctValue = 0) {
+  const item = document.createElement('div');
+  item.className = 'hw-proc-item';
+
+  // 1. 左侧图标与进程信息
+  const left = document.createElement('div');
+  left.className = 'hw-proc-left';
+
+  const iconBadge = document.createElement('span');
+  iconBadge.className = 'hw-proc-icon-badge';
+  const pName = (proc.name || '').toLowerCase();
+  let pIcon = '⚙️';
+  if (pName.includes('chrome') || pName.includes('safari') || pName.includes('edge') || pName.includes('browser')) {
+    pIcon = '🌐';
+  } else if (pName.includes('code') || pName.includes('node') || pName.includes('terminal') || pName.includes('git')) {
+    pIcon = '💻';
+  } else if (pName.includes('windowserver') || pName.includes('graphics') || pName.includes('gpu') || pName.includes('metal')) {
+    pIcon = '🎮';
+  } else if (pName.includes('kernel') || pName.includes('sys') || pName.includes('daemon') || pName.includes('core')) {
+    pIcon = '⚡';
+  }
+  iconBadge.textContent = pIcon;
+
+  const infoCol = document.createElement('div');
+  infoCol.className = 'hw-proc-info-col';
+
+  const nameRow = document.createElement('div');
+  nameRow.className = 'hw-proc-name-row';
+
+  const nameEl = document.createElement('span');
+  nameEl.className = 'hw-proc-name';
+  nameEl.textContent = proc.name || '未知进程';
+  nameEl.title = `${proc.name} (PID: ${proc.pid})`;
+
+  const pidEl = document.createElement('span');
+  pidEl.className = 'hw-proc-pid';
+  pidEl.textContent = proc.pid ? `#${proc.pid}` : '';
+
+  nameRow.appendChild(nameEl);
+  if (proc.pid) nameRow.appendChild(pidEl);
+
+  // 迷你微进度条
+  const trackEl = document.createElement('div');
+  trackEl.className = 'hw-proc-mini-track';
+  const fillEl = document.createElement('div');
+  fillEl.className = 'hw-proc-mini-fill';
+  const clamped = Math.max(3, Math.min(100, pctValue || 0));
+  fillEl.style.width = `${clamped.toFixed(1)}%`;
+  trackEl.appendChild(fillEl);
+
+  infoCol.appendChild(nameRow);
+  infoCol.appendChild(trackEl);
+
+  left.appendChild(iconBadge);
+  left.appendChild(infoCol);
+
+  // 2. 右侧数值徽章与快捷关闭操作
+  const right = document.createElement('div');
+  right.className = 'hw-proc-right';
+
+  const badgeEl = document.createElement('span');
+  badgeEl.className = 'hw-proc-val-badge';
+  badgeEl.textContent = valText;
+
+  const killBtn = document.createElement('button');
+  killBtn.type = 'button';
+  killBtn.className = 'hw-proc-kill-btn';
+  killBtn.title = `结束进程 ${proc.name} (PID: ${proc.pid})`;
+  killBtn.setAttribute('aria-label', `结束进程 ${proc.name}`);
+  killBtn.innerHTML = '<svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+  killBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onKill(proc);
+  });
+
+  right.appendChild(badgeEl);
+  right.appendChild(killBtn);
+
+  item.appendChild(left);
+  item.appendChild(right);
+  return item;
+}
+
+async function handleKillProcess(proc, refreshCallback) {
+  const confirmed = window.confirm(`确定要强制结束进程「${proc.name}」(PID: ${proc.pid}) 吗？`);
+  if (!confirmed) return;
+
+  const adv = getAdvanced();
+  if (typeof adv.killProcessById !== 'function') {
+    alert('无法结束进程：未找到结束进程的高级接口。');
+    return;
+  }
+
+  try {
+    const res = await adv.killProcessById(proc.pid);
+    if (res.ok) {
+      if (typeof refreshCallback === 'function') {
+        setTimeout(refreshCallback, 500);
+      }
+    } else {
+      alert(`结束进程失败: ${res.error || '未知错误'}`);
+    }
+  } catch (err) {
+    alert(`结束进程异常: ${err.message}`);
+  }
+}
+
+let isHardwareFetching = false;
+
+async function refreshDetailedHardwareDashboard() {
+  if (isHardwareFetching) return;
+  const adv = getAdvanced();
+  if (!adv || typeof adv.getDetailedHardwareMetrics !== 'function') return;
+
+  try {
+    isHardwareFetching = true;
+    const metrics = await adv.getDetailedHardwareMetrics();
+    if (!metrics) return;
+
+    const { cpu, memory, gpu, disk } = metrics;
+
+    // 1. 刷新 CPU 卡片
+    try {
+      if (cpu) {
+        const titleEl = document.getElementById('hw-cpu-title');
+        if (titleEl && cpu.brand) titleEl.textContent = cpu.brand;
+
+        const availValEl = document.getElementById('hw-cpu-avail-val');
+        const userValEl = document.getElementById('hw-cpu-user-val');
+        const sysValEl = document.getElementById('hw-cpu-sys-val');
+        if (availValEl) availValEl.textContent = `${Number(cpu.idlePct || 0).toFixed(1)} %`;
+        if (userValEl) userValEl.textContent = `${Number(cpu.userPct || 0).toFixed(1)} %`;
+        if (sysValEl) sysValEl.textContent = `${Number(cpu.systemPct || 0).toFixed(1)} %`;
+
+        hwHistoryCpuUser.push(cpu.userPct || 0);
+        if (hwHistoryCpuUser.length > 24) hwHistoryCpuUser.shift();
+        hwHistoryCpuSys.push(cpu.systemPct || 0);
+        if (hwHistoryCpuSys.length > 24) hwHistoryCpuSys.shift();
+
+        const userPath = generateSvgSmoothPath(hwHistoryCpuUser, 240, 130, 100);
+        const sysPath = generateSvgSmoothPath(hwHistoryCpuSys, 240, 130, 100);
+
+        const areaUserEl = document.getElementById('hw-cpu-area-user');
+        const pathUserEl = document.getElementById('hw-cpu-path-user');
+        const pointUserEl = document.getElementById('hw-cpu-point-user');
+        if (areaUserEl && userPath.areaD) areaUserEl.setAttribute('d', userPath.areaD);
+        if (pathUserEl && userPath.d) pathUserEl.setAttribute('d', userPath.d);
+        if (pointUserEl && userPath.lastX != null) {
+          const x = userPath.lastX;
+          const y = userPath.lastY;
+          pointUserEl.setAttribute('points', `${x.toFixed(1)},${(y - 4.5).toFixed(1)} ${(x + 4.5).toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${(y + 4.5).toFixed(1)} ${(x - 4.5).toFixed(1)},${y.toFixed(1)}`);
+        }
+
+        const areaSysEl = document.getElementById('hw-cpu-area-sys');
+        const pathSysEl = document.getElementById('hw-cpu-path-sys');
+        const pointSysEl = document.getElementById('hw-cpu-point-sys');
+        if (areaSysEl && sysPath.areaD) areaSysEl.setAttribute('d', sysPath.areaD);
+        if (pathSysEl && sysPath.d) pathSysEl.setAttribute('d', sysPath.d);
+        if (pointSysEl && sysPath.lastX != null) {
+          const x = sysPath.lastX;
+          const y = sysPath.lastY;
+          pointSysEl.setAttribute('points', `${x.toFixed(1)},${(y - 4.5).toFixed(1)} ${(x + 4.5).toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${(y + 4.5).toFixed(1)} ${(x - 4.5).toFixed(1)},${y.toFixed(1)}`);
+        }
+
+        const uptimeEl = document.getElementById('hw-cpu-uptime');
+        if (uptimeEl) uptimeEl.textContent = cpu.uptimeText || '--';
+
+        const tempEl = document.getElementById('hw-cpu-temp');
+        const tempDescEl = document.getElementById('hw-cpu-temp-desc');
+        if (tempEl && cpu.tempCelsius != null) {
+          tempEl.textContent = `${cpu.tempCelsius}℃`;
+          if (cpu.tempCelsius >= 80) {
+            tempEl.className = 'hw-subcard-val text-red';
+            if (tempDescEl) tempDescEl.textContent = '处理器负荷高且温度较高，建议排查高负载进程。';
+          } else if (cpu.tempCelsius >= 65) {
+            tempEl.className = 'hw-subcard-val text-amber';
+            if (tempDescEl) tempDescEl.textContent = '处理器负载适中，风扇与均热板处于正常调教区间。';
+          } else {
+            tempEl.className = 'hw-subcard-val text-emerald';
+            if (tempDescEl) tempDescEl.textContent = '核心芯片温度温润安全，能效比表现优异。';
+          }
+        }
+
+        const procListEl = document.getElementById('hw-cpu-proc-list');
+        if (procListEl && Array.isArray(cpu.topProcesses)) {
+          procListEl.innerHTML = '';
+          cpu.topProcesses.forEach(proc => {
+            const rawVal = proc.cpuPct ?? proc.cpu ?? 0;
+            const val = rawVal.toFixed(1);
+            procListEl.appendChild(renderProcRow(proc, `${val}%`, () => {
+              handleKillProcess(proc, refreshDetailedHardwareDashboard);
+            }, rawVal));
+          });
+        }
+      }
+    } catch (cpuErr) {
+      console.error('Render CPU card error:', cpuErr);
+    }
+
+    // 2. 刷新内存卡片
+    try {
+      if (memory) {
+        const freeGbEl = document.getElementById('hw-mem-free-gb');
+        const totalSubEl = document.getElementById('hw-mem-total-sub');
+        if (freeGbEl && memory.availableGb != null) freeGbEl.textContent = `${memory.availableGb.toFixed(2)} GB`;
+        if (totalSubEl && memory.totalGb != null) totalSubEl.textContent = `可用空间 (总共 ${Math.round(memory.totalGb)} GB)`;
+
+        const valActiveEl = document.getElementById('hw-mem-val-active');
+        const valWiredEl = document.getElementById('hw-mem-val-wired');
+        const valCompressedEl = document.getElementById('hw-mem-val-compressed');
+        if (valActiveEl && memory.activeGb != null) valActiveEl.textContent = `${memory.activeGb.toFixed(2)} GB`;
+        if (valWiredEl && memory.wiredGb != null) valWiredEl.textContent = `${memory.wiredGb.toFixed(2)} GB`;
+        if (valCompressedEl && memory.compressedGb != null) valCompressedEl.textContent = `${memory.compressedGb.toFixed(2)} GB`;
+
+        const total = memory.totalGb || 1;
+        const pctActive = ((memory.activeGb || 0) / total) * 100;
+        const pctWired = ((memory.wiredGb || 0) / total) * 100;
+        const pctComp = ((memory.compressedGb || 0) / total) * 100;
+
+        updateDonutArc('hw-mem-arc-active', pctActive, 439.82, 0);
+        updateDonutArc('hw-mem-arc-wired', pctWired, 439.82, (pctActive / 100) * 439.82);
+        updateDonutArc('hw-mem-arc-comp', pctComp, 439.82, ((pctActive + pctWired) / 100) * 439.82);
+
+        const pressureEl = document.getElementById('hw-mem-pressure');
+        const pressureDescEl = document.getElementById('hw-mem-pressure-desc');
+        if (pressureEl && memory.pressurePct != null) {
+          pressureEl.textContent = `${memory.pressurePct}%`;
+          if (memory.pressurePct >= 80) {
+            pressureEl.className = 'hw-subcard-val text-red';
+            if (pressureDescEl) pressureDescEl.textContent = '物理内存接近峰值，系统正加频调度。';
+          } else if (memory.pressurePct >= 60) {
+            pressureEl.className = 'hw-subcard-val text-amber';
+            if (pressureDescEl) pressureDescEl.textContent = '内存负载活跃，部分驻留缓存准备轮转。';
+          } else {
+            pressureEl.className = 'hw-subcard-val text-emerald';
+            if (pressureDescEl) pressureDescEl.textContent = '内存压力平缓，系统整体运行如丝般顺滑。';
+          }
+        }
+
+        const swapEl = document.getElementById('hw-mem-swap');
+        if (swapEl && memory.swapUsedGb != null) swapEl.textContent = `${memory.swapUsedGb.toFixed(2)} GB`;
+
+        const memBadgeSwap = document.getElementById('hw-mem-badge-swap');
+        if (memBadgeSwap) {
+          const swapVal = memory.swapText || (memory.swapUsedGb != null ? `${memory.swapUsedGb.toFixed(1)} GB` : '0 B');
+          memBadgeSwap.textContent = `交换 ${swapVal}`;
+        }
+
+        const memListEl = document.getElementById('hw-mem-proc-list');
+        if (memListEl && Array.isArray(memory.topProcesses)) {
+          memListEl.innerHTML = '';
+          memory.topProcesses.forEach(proc => {
+            const memText = proc.memText || (proc.memGb != null ? proc.memGb.toFixed(2) + ' GB' : '--');
+            const pct = (memory.totalGb && proc.memGb) ? ((proc.memGb / memory.totalGb) * 100) : (proc.memPct || 10);
+            memListEl.appendChild(renderProcRow(proc, memText, () => {
+              handleKillProcess(proc, refreshDetailedHardwareDashboard);
+            }, pct));
+          });
+        }
+      }
+    } catch (memErr) {
+      console.error('Render Memory card error:', memErr);
+    }
+
+    // 3. 刷新显存 / GPU 卡片
+    try {
+      if (gpu) {
+        const titleEl = document.getElementById('hw-gpu-title');
+        if (titleEl && gpu.model) titleEl.textContent = gpu.model;
+
+        const allocGb = gpu.allocGb != null ? gpu.allocGb : (gpu.allocatedGb != null ? gpu.allocatedGb : 0);
+        const freeGb = gpu.totalGb != null ? Math.max(0, gpu.totalGb - allocGb) : 0;
+
+        const freeGbEl = document.getElementById('hw-gpu-free-gb');
+        const totalSubEl = document.getElementById('hw-gpu-total-sub');
+        if (freeGbEl) freeGbEl.textContent = `${freeGb.toFixed(2)} GB`;
+        if (totalSubEl) totalSubEl.textContent = `共享显存池余量 (总共 ${Math.round(gpu.totalGb || 0)} GB)`;
+
+        const valAllocEl = document.getElementById('hw-gpu-val-alloc');
+        const valArchEl = document.getElementById('hw-gpu-val-arch');
+        const valUtilEl = document.getElementById('hw-gpu-val-util');
+        if (valAllocEl) valAllocEl.textContent = `${allocGb.toFixed(2)} GB`;
+
+        const mfRaw = String(gpu.metalFamily || 'Metal 4');
+        const metalStr = mfRaw.replace(/^METAL\s*(\d+)$/i, 'Metal $1').replace(/.*METAL.*APPLE(\d+).*/i, 'Metal $1').replace(/gpufamily/ig,'');
+        if (valArchEl) valArchEl.textContent = `${metalStr} 硬件加速`;
+        const valMetalEl = document.getElementById('hw-gpu-val-metal');
+        if (valMetalEl) valMetalEl.textContent = `${metalStr} 硬件加速`;
+
+        const utilPct = (gpu.utilizationPct != null && !isNaN(gpu.utilizationPct)) ? Math.round(gpu.utilizationPct) : 0;
+        if (valUtilEl) valUtilEl.textContent = `${utilPct} %`;
+        const valLoadEl = document.getElementById('hw-gpu-val-load');
+        if (valLoadEl) valLoadEl.textContent = `${utilPct} %`;
+
+        const badgeMetalEl = document.getElementById('hw-gpu-badge-metal') || document.getElementById('hw-gpu-badge');
+        if (badgeMetalEl) badgeMetalEl.textContent = metalStr;
+
+        const total = gpu.totalGb || 1;
+        const pctAlloc = Math.min(100, (allocGb / total) * 100);
+        updateDonutArc('hw-gpu-arc-alloc', pctAlloc, 439.82, 0);
+
+        const loadValEl = document.getElementById('hw-gpu-load-val') || document.getElementById('hw-gpu-util');
+        const engineValEl = document.getElementById('hw-gpu-engine-val') || document.getElementById('hw-gpu-family');
+        if (loadValEl) loadValEl.textContent = `${utilPct}%`;
+        if (engineValEl) engineValEl.textContent = metalStr;
+
+        const gpuListEl = document.getElementById('hw-gpu-proc-list');
+        if (gpuListEl && Array.isArray(gpu.topProcesses)) {
+          gpuListEl.innerHTML = '';
+          gpu.topProcesses.forEach(proc => {
+            const badge = (proc.cpuPct != null && proc.cpuPct > 0) ? `${proc.cpuPct.toFixed(1)}%` : (proc.memText || (proc.memGb != null ? proc.memGb.toFixed(2) + ' GB' : '--'));
+            const pct = (proc.cpuPct != null && proc.cpuPct > 0) ? proc.cpuPct : (gpu.totalGb && proc.memGb ? (proc.memGb / gpu.totalGb) * 100 : 15);
+            gpuListEl.appendChild(renderProcRow(proc, badge, () => {
+              handleKillProcess(proc, refreshDetailedHardwareDashboard);
+            }, pct));
+          });
+        }
+      }
+    } catch (gpuErr) {
+      console.error('Render GPU card error:', gpuErr);
+    }
+
+    // 4. 刷新硬盘空间卡片 (Macintosh HD)
+    try {
+      if (disk) {
+        const diskTitleEl = document.getElementById('hw-disk-title');
+        if (diskTitleEl && disk.diskName) diskTitleEl.textContent = disk.diskName;
+
+        const diskAvailEl = document.getElementById('hw-disk-avail');
+        const diskTotalEl = document.getElementById('hw-disk-total');
+        if (diskAvailEl && disk.availableGb != null) diskAvailEl.textContent = `${disk.availableGb.toFixed(2)} GB`;
+        if (diskTotalEl && disk.totalGb != null) diskTotalEl.textContent = `(总共 ${disk.totalGb.toFixed(2)} GB)`;
+
+        const catGb = (key) => {
+          const v = disk.categories && disk.categories[key];
+          if (v == null) return 0;
+          return typeof v === 'object' ? (v.gb || 0) : Number(v) || 0;
+        };
+        const setDiskVal = (id, val) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = val;
+        };
+        setDiskVal('hw-disk-val-apps', `${catGb('apps').toFixed(2)} GB`);
+        setDiskVal('hw-disk-val-docs', `${catGb('docs').toFixed(2)} GB`);
+        setDiskVal('hw-disk-val-pics', `${catGb('pics').toFixed(2)} GB`);
+        setDiskVal('hw-disk-val-video', `${catGb('video').toFixed(2)} GB`);
+        setDiskVal('hw-disk-val-audio', `${catGb('audio') < 1 ? (catGb('audio') * 1024).toFixed(1) + ' MB' : catGb('audio').toFixed(2) + ' GB'}`);
+        setDiskVal('hw-disk-val-other', `${catGb('other').toFixed(2)} GB`);
+
+        const c = 238.76;
+        const total = disk.totalGb || 1;
+        let curOffset = 0;
+        const setDonutSeg = (id, gb) => {
+          const segEl = document.getElementById(id);
+          if (!segEl) return;
+          const pct = Math.max(0, gb / total);
+          const len = pct * c;
+          const gap = c - len;
+          segEl.style.strokeDasharray = `${len} ${gap}`;
+          segEl.style.strokeDashoffset = `${-curOffset}`;
+          curOffset += len;
+        };
+
+        setDonutSeg('hw-disk-seg-apps', catGb('apps'));
+        setDonutSeg('hw-disk-seg-docs', catGb('docs'));
+        setDonutSeg('hw-disk-seg-pics', catGb('pics'));
+        setDonutSeg('hw-disk-seg-video', catGb('video'));
+        setDonutSeg('hw-disk-seg-audio', catGb('audio'));
+        setDonutSeg('hw-disk-seg-other', catGb('other'));
+
+        const healthValEl = document.getElementById('hw-disk-health-val');
+        const healthDescEl = document.getElementById('hw-disk-health-desc');
+        if (healthValEl && disk.healthPct != null) healthValEl.textContent = `${disk.healthPct}%`;
+        if (healthDescEl && disk.healthDesc) healthDescEl.textContent = disk.healthDesc;
+
+        const tempValEl = document.getElementById('hw-disk-temp-val');
+        const tempDescEl = document.getElementById('hw-disk-temp-desc');
+        if (tempValEl && disk.tempC != null) tempValEl.textContent = `${disk.tempC}℃`;
+        if (tempDescEl && disk.tempDesc) tempDescEl.textContent = disk.tempDesc;
+      }
+    } catch (diskErr) {
+      console.error('Render Disk card error:', diskErr);
+    }
+
+  } catch (err) {
+    console.error('Error refreshing hardware dashboard:', err);
+  } finally {
+    isHardwareFetching = false;
+  }
+}
+
+function initDetailedHardwareDashboard() {
+  const segmentTabs = document.querySelectorAll('.hw-segment-tab');
+  segmentTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const targetType = tab.getAttribute('data-hw-tab');
+      segmentTabs.forEach((t) => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+
+      // 切换卡片显隐
+      const cards = document.querySelectorAll('.hw-monitor-card');
+      cards.forEach((card) => {
+        card.classList.remove('active');
+      });
+      const activeCard = document.getElementById(`hw-card-${targetType}`);
+      if (activeCard) {
+        activeCard.classList.add('active');
+      }
+    });
+  });
+
+  // 初始拉取
+  refreshDetailedHardwareDashboard();
+
+  // 设定定时轮询 (默认每 1 秒实时刷新核心硬件指标，在后台隐藏时自动休眠节能)
+  setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    refreshDetailedHardwareDashboard();
+  }, 1000);
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        refreshDetailedHardwareDashboard();
+      }
+    });
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initDetailedHardwareDashboard);
+} else {
+  initDetailedHardwareDashboard();
+}

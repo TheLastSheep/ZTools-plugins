@@ -83,6 +83,8 @@ declare global {
         itemId: string;
         mediaType: string;
         dataBase64: string;
+        originalWidth?: number | undefined;
+        originalHeight?: number | undefined;
       }>>;
       prepareNativeFileDrag(itemId: string): Promise<boolean>;
       startNativeFileDrag(itemId: string): boolean;

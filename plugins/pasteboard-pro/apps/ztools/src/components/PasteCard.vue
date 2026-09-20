@@ -38,6 +38,7 @@ const emit = defineEmits<{
 }>();
 const card = ref<HTMLElement>();
 const thumbnailUrl = ref<string>();
+const imageDimensions = ref<string>();
 const thumbnailRequested = ref(false);
 const reorderDragging = ref(false);
 const shortcutPlatform = resolveShortcutPlatform(
@@ -268,10 +269,14 @@ const bodyText = computed(() => {
 async function loadThumbnail(): Promise<void> {
   if (props.item.kind !== "image") return;
   thumbnailRequested.value = true;
-  thumbnailUrl.value = await loadItemThumbnail(
+  const thumbnailData = await loadItemThumbnail(
     props.item.id,
     props.item.payload.revision,
   );
+  thumbnailUrl.value = thumbnailData?.url;
+  if (thumbnailData?.originalWidth && thumbnailData?.originalHeight) {
+    imageDimensions.value = `${thumbnailData.originalWidth}×${thumbnailData.originalHeight}`;
+  }
   prepareNativeFileDrag();
 }
 
@@ -286,9 +291,17 @@ watch(
   () => props.item.payload.revision,
   () => {
     thumbnailUrl.value = undefined;
+    imageDimensions.value = undefined;
     if (thumbnailRequested.value) void loadThumbnail();
   },
 );
+
+function handleImageLoad(event: Event) {
+  if (imageDimensions.value) return;
+  const target = event.currentTarget as HTMLImageElement | null;
+  if (!target || !target.naturalWidth || !target.naturalHeight) return;
+  imageDimensions.value = `${target.naturalWidth}×${target.naturalHeight}`;
+}
 
 onBeforeUnmount(() => {
   stopObservingThumbnail?.();
@@ -317,7 +330,10 @@ onBeforeUnmount(() => {
     @dragend="finishReorderDrag"
   >
     <header>
-      <span class="kind">{{ item.kind.replace('_', ' ') }}</span>
+      <span class="kind">
+        {{ item.kind.replace('_', ' ') }}
+        <span v-if="item.kind === 'image' && imageDimensions" class="kind-meta">· {{ imageDimensions }}</span>
+      </span>
       <span class="card-tools">
         <span
           v-if="reorderEnabled !== false"
@@ -338,6 +354,7 @@ onBeforeUnmount(() => {
         draggable="true"
         @pointerdown="prepareNativeFileDrag"
         @dragstart="beginNativeFileDrag"
+        @load="handleImageLoad"
       />
       <span v-else>IMAGE</span>
     </div>
@@ -569,12 +586,13 @@ onBeforeUnmount(() => {
 .paste-card--vertical.paste-card--compact .color-preview,
 .paste-card--vertical.paste-card--compact .image-preview {
   min-height: 38px;
+  height: 38px;
   margin: 5px 0;
   border-radius: 9px;
 }
 
 .paste-card--vertical.paste-card--compact .image-preview img {
-  min-height: 38px;
+  min-height: 100%;
 }
 
 .paste-card--vertical.paste-card--compact kbd {
@@ -632,6 +650,13 @@ header {
   text-transform: uppercase;
 }
 
+.kind-meta {
+  color: var(--pb-muted);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 kbd {
   display: grid;
   width: 18px;
@@ -658,12 +683,17 @@ p {
 .color-preview,
 .image-preview {
   min-height: 62px;
+  height: 62px;
   margin: 8px 0;
   border-radius: 11px;
 }
 
 .image-preview {
-  display: grid;
+  display: flex;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
   background:
     radial-gradient(circle at 28% 30%, rgba(255, 255, 255, 0.7), transparent 30%),
     linear-gradient(135deg, #8e82e8, #423c72);
@@ -671,16 +701,30 @@ p {
   font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.18em;
-  place-items: center;
+  contain: layout paint;
+  will-change: scroll-position;
+}
+
+.image-preview::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.image-preview::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
 }
 
 .image-preview img {
   display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 62px;
+  width: auto;
+  height: auto;
+  min-width: 100%;
+  min-height: 100%;
+  flex-shrink: 0;
   cursor: grab;
-  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: element;
 }
 
 .image-preview img:active {

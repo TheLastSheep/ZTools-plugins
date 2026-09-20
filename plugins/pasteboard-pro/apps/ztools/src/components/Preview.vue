@@ -168,14 +168,17 @@ pre {
 }
 
 .media {
-  display: grid;
-  place-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   min-height: 0;
   margin: 14px 0;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--pb-line);
   border-radius: 15px;
   background: rgba(0, 0, 0, 0.08);
+  scrollbar-width: thin;
 }
 
 .preview-body .media { margin-bottom: 0; }
@@ -183,10 +186,15 @@ pre {
   display: block;
   width: auto;
   height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  max-width: none;
+  max-height: none;
+  min-width: 100%;
+  min-height: 100%;
+  margin: auto;
   border: 0;
   object-fit: contain;
+  contain: layout paint;
+  will-change: scroll-position;
 }
 
 .media object {

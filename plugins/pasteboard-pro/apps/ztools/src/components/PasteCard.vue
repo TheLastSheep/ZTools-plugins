@@ -39,6 +39,8 @@ const emit = defineEmits<{
 const card = ref<HTMLElement>();
 const thumbnailUrl = ref<string>();
 const imageDimensions = ref<string>();
+const imageWidth = ref<number>();
+const imageHeight = ref<number>();
 const thumbnailRequested = ref(false);
 const reorderDragging = ref(false);
 const shortcutPlatform = resolveShortcutPlatform(
@@ -266,6 +268,14 @@ const bodyText = computed(() => {
   return props.item.payload.mediaType ?? props.item.kind;
 });
 
+function updateImageDimensions(w: number, h: number): void {
+  if (w > 0 && h > 0) {
+    imageWidth.value = w;
+    imageHeight.value = h;
+    imageDimensions.value = `${w}×${h}`;
+  }
+}
+
 async function loadThumbnail(): Promise<void> {
   if (props.item.kind !== "image") return;
   thumbnailRequested.value = true;
@@ -275,7 +285,7 @@ async function loadThumbnail(): Promise<void> {
   );
   thumbnailUrl.value = thumbnailData?.url;
   if (thumbnailData?.originalWidth && thumbnailData?.originalHeight) {
-    imageDimensions.value = `${thumbnailData.originalWidth}×${thumbnailData.originalHeight}`;
+    updateImageDimensions(thumbnailData.originalWidth, thumbnailData.originalHeight);
   }
   prepareNativeFileDrag();
 }
@@ -292,16 +302,30 @@ watch(
   () => {
     thumbnailUrl.value = undefined;
     imageDimensions.value = undefined;
+    imageWidth.value = undefined;
+    imageHeight.value = undefined;
     if (thumbnailRequested.value) void loadThumbnail();
   },
 );
 
 function handleImageLoad(event: Event) {
-  if (imageDimensions.value) return;
   const target = event.currentTarget as HTMLImageElement | null;
   if (!target || !target.naturalWidth || !target.naturalHeight) return;
-  imageDimensions.value = `${target.naturalWidth}×${target.naturalHeight}`;
+  updateImageDimensions(target.naturalWidth, target.naturalHeight);
 }
+
+// 宽高比与滚动方向：
+// 1. 宽高比大于 1（常规横图/截图）：宽度 100%，高度（垂直）平滑滚动浏览；纵向长图同样以宽度 100% 高度滚动浏览
+// 2. 超宽全景图（宽高比显著超出容器）：高度 100%，宽度（水平）平滑滚动浏览
+const isFitWidth = computed<boolean>(() => {
+  if (imageWidth.value && imageHeight.value && imageHeight.value > 0) {
+    const ratio = imageWidth.value / imageHeight.value;
+    // 容器宽高比约为 3.2。若比例超过 3.0 则为超长宽图（高度100%，横向滚动）
+    // 其余常规图与长图均以宽度100%纵向滚动浏览
+    return ratio <= 3.0;
+  }
+  return true;
+});
 
 onBeforeUnmount(() => {
   stopObservingThumbnail?.();
@@ -345,7 +369,15 @@ onBeforeUnmount(() => {
       </span>
     </header>
     <div v-if="item.kind === 'color'" class="color-preview" :style="{ background: item.payload.text }"></div>
-    <div v-else-if="item.kind === 'image'" class="image-preview" aria-label="图片缩略图" draggable="true" @pointerdown="prepareNativeFileDrag" @dragstart="beginNativeFileDrag">
+    <div
+      v-else-if="item.kind === 'image'"
+      class="image-preview"
+      :class="isFitWidth ? 'image-preview--ratio-gt-1' : 'image-preview--ratio-lt-1'"
+      aria-label="图片缩略图"
+      draggable="true"
+      @pointerdown="prepareNativeFileDrag"
+      @dragstart="beginNativeFileDrag"
+    >
       <img
         v-if="thumbnailUrl"
         :src="thumbnailUrl"
@@ -591,10 +623,6 @@ onBeforeUnmount(() => {
   border-radius: 9px;
 }
 
-.paste-card--vertical.paste-card--compact .image-preview img {
-  min-height: 100%;
-}
-
 .paste-card--vertical.paste-card--compact kbd {
   width: 16px;
   height: 16px;
@@ -690,8 +718,7 @@ p {
 
 .image-preview {
   display: flex;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
   background:
@@ -701,7 +728,6 @@ p {
   font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.18em;
-  contain: layout paint;
   will-change: scroll-position;
 }
 
@@ -715,12 +741,42 @@ p {
   border-radius: 4px;
 }
 
-.image-preview img {
+/* 宽高比大于 1：宽度 100%，高度滚动 */
+.image-preview--ratio-gt-1 {
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.image-preview--ratio-gt-1 img {
   display: block;
-  width: auto;
+  width: 100%;
   height: auto;
   min-width: 100%;
+  max-width: 100%;
+  max-height: none;
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: element;
+}
+
+/* 宽高比小于等于 1：高度 100%，宽度滚动 */
+.image-preview--ratio-lt-1 {
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.image-preview--ratio-lt-1 img {
+  display: block;
+  height: 100%;
+  width: auto;
   min-height: 100%;
+  max-height: 100%;
+  max-width: none;
   flex-shrink: 0;
   cursor: grab;
   user-select: none;
@@ -744,6 +800,7 @@ footer {
   justify-content: space-between;
   color: var(--pb-muted);
   font-size: 9px;
+  flex-shrink: 0;
 }
 
 footer strong,

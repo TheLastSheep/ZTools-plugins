@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import { HistorySearchIndex } from "./history-search-index";
 import type { HistoryPage, HistoryRequest } from "./history-page";
 
 export type HistoryDocumentReader = Readonly<{
@@ -6,9 +7,27 @@ export type HistoryDocumentReader = Readonly<{
   changed(ids: readonly string[]): Promise<unknown[]>;
 }>;
 
-/** One lazy worker per window; full records never enter Vue's reactive state. */
+let workerSupportChecked = false;
+let workerSupported = true;
+
+function canUseWorker(): boolean {
+  if (workerSupportChecked) return workerSupported;
+  workerSupportChecked = true;
+  try {
+    // Some Electron renderer/preload environments with custom V8 platform do not support node:worker_threads
+    const testWorker = new Worker("data:text/javascript,;", { eval: true });
+    testWorker.terminate();
+    workerSupported = true;
+  } catch {
+    workerSupported = false;
+  }
+  return workerSupported;
+}
+
+/** One lazy worker per window (with in-process fallback); full records never enter Vue's reactive state. */
 export class HistorySearchService {
   private worker: Worker | undefined;
+  private localIndex: HistorySearchIndex | undefined;
   private serial = 0;
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   private loaded = false;
@@ -60,6 +79,7 @@ export class HistorySearchService {
     this.fail(new Error("History search closed"));
     void this.worker?.terminate();
     this.worker = undefined;
+    this.localIndex = undefined;
   }
 
   private fail(error: Error): void {
@@ -70,27 +90,38 @@ export class HistorySearchService {
 
   private call(message: Record<string, unknown>): Promise<unknown> {
     if (this.disposed) return Promise.reject(new Error("History search closed"));
+
+    if (!canUseWorker()) {
+      return this.callLocal(message);
+    }
+
     if (this.worker === undefined) {
-      const worker = new Worker(this.filename);
-      this.worker = worker;
-      worker.on("message", (response: { id: number; value?: unknown; error?: string }) => {
-        const request = this.pending.get(response.id);
-        this.pending.delete(response.id);
-        if (response.error === undefined) request?.resolve(response.value);
-        else request?.reject(new Error(response.error));
-      });
-      worker.on("error", error => {
-        if (this.worker !== worker) return;
-        this.worker = undefined;
-        this.fail(error);
-        void worker.terminate();
-      });
-      worker.on("exit", () => {
-        if (this.worker === worker) {
+      try {
+        const worker = new Worker(this.filename);
+        this.worker = worker;
+        worker.on("message", (response: { id: number; value?: unknown; error?: string }) => {
+          const request = this.pending.get(response.id);
+          this.pending.delete(response.id);
+          if (response.error === undefined) request?.resolve(response.value);
+          else request?.reject(new Error(response.error));
+        });
+        worker.on("error", error => {
+          if (this.worker !== worker) return;
           this.worker = undefined;
-          this.fail(new Error("History search worker exited"));
-        }
-      });
+          this.fail(error);
+          void worker.terminate();
+        });
+        worker.on("exit", () => {
+          if (this.worker === worker) {
+            this.worker = undefined;
+            this.fail(new Error("History search worker exited"));
+          }
+        });
+      } catch (error) {
+        // Fallback to local index if worker construction fails
+        workerSupported = false;
+        return this.callLocal(message);
+      }
     }
     const id = ++this.serial;
     return new Promise((resolve, reject) => {
@@ -98,5 +129,31 @@ export class HistorySearchService {
       try { this.worker!.postMessage({ ...message, id }); }
       catch (error) { this.pending.delete(id); reject(error); }
     });
+  }
+
+  private callLocal(message: Record<string, unknown>): Promise<unknown> {
+    try {
+      if (this.localIndex === undefined) {
+        this.localIndex = new HistorySearchIndex();
+      }
+      const type = message.type as string;
+      if (type === "replace") {
+        this.localIndex.replace((message.documents as unknown[]) ?? []);
+        return Promise.resolve(undefined);
+      }
+      if (type === "update") {
+        this.localIndex.update(
+          (message.documents as unknown[]) ?? [],
+          (message.removed as string[]) ?? [],
+        );
+        return Promise.resolve(undefined);
+      }
+      if (type === "order") {
+        return Promise.resolve(this.localIndex.order((message.request as HistoryRequest) ?? {}));
+      }
+      return Promise.resolve(this.localIndex.page((message.request as HistoryRequest) ?? {}));
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 }

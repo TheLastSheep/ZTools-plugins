@@ -1032,7 +1032,8 @@ onMounted(async () => {
     await initializeWindow();
   } catch (error) {
     console.error("Paste initial content failed to load", error);
-    startupError.value = "加载失败，请关闭后重新打开 Paste";
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    startupError.value = `加载失败，请关闭后重新打开 Paste (${detail})`;
   } finally {
     // nextTick includes child updates from the initial history and theme. Unlike
     // requestAnimationFrame, it also runs while an Electron window is hidden.

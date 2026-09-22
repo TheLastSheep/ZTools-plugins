@@ -1048,7 +1048,7 @@ async function initializeWindow(): Promise<void> {
   }
   await loadHistory();
   await loadPinboards();
-  if (panelMode.value === undefined && shouldShowWhatsNew()) {
+  if (panelMode === undefined && shouldShowWhatsNew()) {
     whatsNewOpen.value = true;
   }
 }

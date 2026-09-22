@@ -47,6 +47,7 @@ const emit = defineEmits<{
   close: [];
   historyCleared: [];
   retry: [];
+  showWhatsNew: [];
   save: [
     privacySettings: PrivacySettings,
     windowPreferences: WindowPreferences,
@@ -357,6 +358,10 @@ function save(): void {
             <div class="shortcut-settings">
               <span><strong>全局唤起快捷键</strong><small>{{ hotkeySettingsHint }}</small></span>
               <button type="button" @click="openHotkeySettings">设置 ZTools 快捷键</button>
+            </div>
+            <div class="shortcut-settings">
+              <span><strong>版本新特性</strong><small>探索当前版本 (v1.3.0) 带来的全新功能与体验提升。</small></span>
+              <button type="button" @click="emit('showWhatsNew')">查看新特性</button>
             </div>
             <p v-if="hotkeySettingsMessage" class="settings-result" role="status">{{ hotkeySettingsMessage }}</p>
           </section>

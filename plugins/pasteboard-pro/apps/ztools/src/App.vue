@@ -29,6 +29,12 @@ import { HistoryPager } from "./history-pager";
 import Preview from "./components/Preview.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import TextEditor from "./components/TextEditor.vue";
+import WhatsNewModal from "./components/WhatsNewModal.vue";
+import {
+  CURRENT_APP_VERSION,
+  markWhatsNewSeen,
+  shouldShowWhatsNew,
+} from "./whats-new";
 import { combinedTextPasteContent } from "./batch-paste";
 import { assignmentItemIds } from "./pinboard-assignment";
 import {
@@ -123,6 +129,16 @@ const hasImageBackground = computed(
 const settingsOpen = ref(false);
 const settingsSaving = ref(false);
 const settingsInitialTab = ref<"general" | "appearance" | "privacy" | "sync">("general");
+const whatsNewOpen = ref(false);
+
+function openWhatsNew(): void {
+  whatsNewOpen.value = true;
+}
+
+function closeWhatsNew(): void {
+  whatsNewOpen.value = false;
+  markWhatsNewSeen();
+}
 const editor = ref<{
   mode: "create" | "edit" | "rename";
   itemId?: string;
@@ -413,13 +429,20 @@ async function handleEffect(effect: PasteboardKeyboardEffect | null): Promise<vo
 
 async function onKeydown(event: KeyboardEvent): Promise<void> {
   if (event.isComposing) return;
-  if (event.key === "Escape" && (isShelfMode || panelMode !== undefined)) {
-    event.preventDefault();
-    window.close();
-    return;
+  if (event.key === "Escape") {
+    if (whatsNewOpen.value) {
+      event.preventDefault();
+      closeWhatsNew();
+      return;
+    }
+    if (isShelfMode || panelMode !== undefined) {
+      event.preventDefault();
+      window.close();
+      return;
+    }
   }
   if (!isShelfMode) return;
-  if (settingsOpen.value) return;
+  if (settingsOpen.value || whatsNewOpen.value) return;
   if (matchesPrimaryShortcut(event, shortcutPlatform, "f")) {
     event.preventDefault();
     document.querySelector<HTMLInputElement>("[data-pb-search]")?.focus();
@@ -1025,6 +1048,9 @@ async function initializeWindow(): Promise<void> {
   }
   await loadHistory();
   await loadPinboards();
+  if (panelMode.value === undefined && shouldShowWhatsNew()) {
+    whatsNewOpen.value = true;
+  }
 }
 
 onMounted(async () => {
@@ -1139,6 +1165,12 @@ onBeforeUnmount(() => {
       @save="saveSettings"
       @retry="retrySync"
       @history-cleared="onHistoryCleared"
+      @show-whats-new="openWhatsNew"
+    />
+    <WhatsNewModal
+      v-if="whatsNewOpen"
+      :version="CURRENT_APP_VERSION"
+      @close="closeWhatsNew"
     />
     <TextEditor
       v-if="panelMode === 'editor' && editor"

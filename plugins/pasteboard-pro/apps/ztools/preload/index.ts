@@ -79,7 +79,11 @@ import {
   saveSyncConfiguration,
   type SaveSyncConfigurationInput,
 } from "./sync-config";
-import { ZToolsSyncStore, type SyncSettings } from "./sync-store";
+import {
+  ZToolsSyncStore,
+  DEFAULT_SYNC_INTERVAL_MINUTES,
+  type SyncSettings,
+} from "./sync-store";
 import { ZToolsSyncEntityRepository } from "./sync-repository";
 import { createSearchHistoryHandler } from "./tools";
 import {
@@ -343,6 +347,7 @@ const SHELF_EDGE_CHANNEL = "pasteboard-pro:set-shelf-edge";
 const HISTORY_CHANGED_CHANNEL = "pasteboard-pro:history-changed";
 const WINDOW_PREFERENCES_CHANGED_CHANNEL = "pasteboard-pro:window-preferences-changed";
 const PASTE_STACK_CHANGED_CHANNEL = "pasteboard-pro:paste-stack-changed";
+const SYNC_SETTINGS_CHANGED_CHANNEL = "pasteboard-pro:sync-settings-changed";
 
 const canonicalClipboardHost = withRichClipboard(ztools.clipboard, {
   write: (data) => clipboard.write(data),
@@ -478,6 +483,34 @@ function broadcastWindowPreferencesChanged(): void {
   ztools.sendToParent?.(WINDOW_PREFERENCES_CHANGED_CHANNEL);
 }
 
+let vaultSyncIntervalTimer: NodeJS.Timeout | undefined;
+
+function configureVaultSyncInterval(settings: SyncSettings): void {
+  if (vaultSyncIntervalTimer !== undefined) {
+    clearInterval(vaultSyncIntervalTimer);
+    vaultSyncIntervalTimer = undefined;
+  }
+  if (!settings.enabled) return;
+
+  const intervalMinutes = Math.max(1, settings.intervalMinutes ?? DEFAULT_SYNC_INTERVAL_MINUTES);
+  const intervalMs = intervalMinutes * 60 * 1_000;
+
+  vaultSyncIntervalTimer = setInterval(() => {
+    void scheduleVaultSync().catch(reportSynchronizationError);
+  }, intervalMs);
+}
+
+function broadcastSyncSettingsChanged(settings: SyncSettings): void {
+  window.dispatchEvent(
+    new CustomEvent(SYNC_SETTINGS_CHANGED_CHANNEL, { detail: settings }),
+  );
+  if (isPrimaryWindow) {
+    configureVaultSyncInterval(settings);
+    return;
+  }
+  ztools.sendToParent?.(SYNC_SETTINGS_CHANGED_CHANNEL, settings);
+}
+
 function reportSynchronizationError(error: unknown): void {
   window.dispatchEvent(
     new CustomEvent("pasteboard-pro:sync-error", {
@@ -609,6 +642,23 @@ if (ownsClipboardHistoryMirror(windowRole)) {
   ipcRenderer.on(WINDOW_PREFERENCES_CHANGED_CHANNEL, () => {
     shelfWindows.notifyWindowPreferencesChanged();
   });
+  ipcRenderer.on(SYNC_SETTINGS_CHANGED_CHANNEL, (_event, settings) => {
+    if (isRecord(settings)) {
+      configureVaultSyncInterval(settings as unknown as SyncSettings);
+    }
+  });
+  void syncStore.getSettings().then((settings) => {
+    configureVaultSyncInterval(settings);
+    if (settings.enabled) {
+      const lastSyncedTime = settings.status.lastSyncedAt
+        ? new Date(settings.status.lastSyncedAt).getTime()
+        : 0;
+      const intervalMs = (settings.intervalMinutes ?? DEFAULT_SYNC_INTERVAL_MINUTES) * 60 * 1_000;
+      if (Date.now() - lastSyncedTime >= intervalMs) {
+        void scheduleVaultSync().catch(reportSynchronizationError);
+      }
+    }
+  }).catch(reportSynchronizationError);
   ipcRenderer.on(PASTE_STACK_CHANGED_CHANNEL, (_event, value) => {
     void pasteStackRuntime
       ?.replace(normalizePasteStackState(value), false)
@@ -899,6 +949,7 @@ const bridge: PasteboardProBridge = {
   getSyncSettings: () => syncStore.getSettings(),
   async saveSyncSettings(input) {
     const settings = await saveSyncConfiguration(syncStore, keychain, input);
+    broadcastSyncSettingsChanged(settings);
     return settings.enabled ? await scheduleVaultSync() : settings;
   },
   retrySync: () => scheduleVaultSync(),

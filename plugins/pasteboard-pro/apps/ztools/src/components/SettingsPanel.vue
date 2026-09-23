@@ -108,9 +108,20 @@ const form = reactive({
   syncEnabled: props.syncSettings.enabled,
   baseUrl: props.syncSettings.baseUrl,
   username: props.syncSettings.username,
+  intervalMinutes: props.syncSettings.intervalMinutes ?? 60,
   webdavPassword: "",
   syncPassword: "",
 });
+
+const syncIntervalOptions = [
+  { value: 15, label: "每 15 分钟" },
+  { value: 30, label: "每 30 分钟" },
+  { value: 60, label: "每 1 小时（默认）" },
+  { value: 120, label: "每 2 小时" },
+  { value: 360, label: "每 6 小时" },
+  { value: 720, label: "每 12 小时" },
+  { value: 1440, label: "每 24 小时" },
+] as const;
 
 const blobBudgetConstraints = computed(() =>
   blobBudgetInputConstraints(form.maxBlobUnit),
@@ -190,6 +201,7 @@ watch(
     form.syncEnabled = settings.enabled;
     form.baseUrl = settings.baseUrl;
     form.username = settings.username;
+    form.intervalMinutes = settings.intervalMinutes ?? 60;
     form.webdavPassword = "";
     form.syncPassword = "";
   },
@@ -296,6 +308,7 @@ function save(): void {
       enabled: form.syncEnabled,
       baseUrl: form.baseUrl,
       username: form.username,
+      intervalMinutes: form.intervalMinutes,
       ...(form.webdavPassword.length === 0
         ? {}
         : { webdavPassword: form.webdavPassword }),
@@ -426,6 +439,7 @@ function save(): void {
               <label class="settings-field settings-field--wide"><span>WebDAV 地址</span><input v-model="form.baseUrl" :disabled="!form.syncEnabled" type="url" placeholder="https://dav.example.com/PasteboardPro/v1/" autocomplete="url" /></label>
               <label class="settings-field"><span>用户名</span><input v-model="form.username" :disabled="!form.syncEnabled" autocomplete="username" /></label>
               <label class="settings-field"><span>WebDAV 密码</span><input v-model="form.webdavPassword" :disabled="!form.syncEnabled" type="password" placeholder="未修改" autocomplete="current-password" /></label>
+              <label class="settings-field settings-field--wide"><span>自动备份间隔</span><select v-model.number="form.intervalMinutes" :disabled="!form.syncEnabled"><option v-for="opt in syncIntervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option></select></label>
               <label class="settings-field settings-field--wide"><span>剪贴板同步密码</span><input v-model="form.syncPassword" :disabled="!form.syncEnabled" type="password" placeholder="用于端到端加密；丢失后无法恢复" autocomplete="new-password" /></label>
             </div>
             <p class="settings-note">密码和派生密钥只保存在系统安全存储；插件数据库不保存明文秘密。</p>
@@ -454,7 +468,7 @@ function save(): void {
 .settings-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 0; border-top:1px solid var(--pb-line); }.settings-toggle span { display:grid; gap:3px; }.settings-toggle strong { font-size:12px; }.settings-toggle small { color:var(--pb-muted); font-size:10px; line-height:1.4; }.settings-toggle input { width:32px; accent-color:var(--pb-violet); }
 .shortcut-settings { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 0; border-top:1px solid var(--pb-line); }.shortcut-settings > span { display:grid; gap:3px; }.shortcut-settings strong { font-size:12px; }.shortcut-settings small { color:var(--pb-muted); font-size:10px; line-height:1.4; }.shortcut-settings button { flex:none; min-height:34px; padding:0 11px; border:1px solid var(--pb-line); border-radius:9px; background:color-mix(in srgb,var(--pb-glass-strong) 58%,transparent); color:var(--pb-ink); cursor:pointer; font-size:10px; font-weight:700; }.shortcut-settings button:hover,.shortcut-settings button:focus-visible { border-color:var(--pb-violet); color:var(--pb-violet); outline:2px solid color-mix(in srgb,var(--pb-violet) 30%,transparent); outline-offset:1px; }
 .danger-zone { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:18px; padding:14px; border:1px solid color-mix(in srgb,#c34455 28%,var(--pb-line)); border-radius:13px; background:color-mix(in srgb,#c34455 5%,transparent); }.danger-zone > span { display:grid; gap:3px; }.danger-zone strong { color:#b63f50; font-size:12px; }.danger-zone small { color:var(--pb-muted); font-size:10px; line-height:1.45; }.danger-zone button { flex:none; min-height:34px; padding:0 12px; border:1px solid color-mix(in srgb,#c34455 38%,var(--pb-line)); border-radius:9px; background:transparent; color:#b63f50; cursor:pointer; font-size:10px; font-weight:750; }.danger-zone button:hover { background:color-mix(in srgb,#c34455 9%,transparent); }.danger-zone button:disabled { cursor:wait; opacity:.55; }.settings-result { margin:8px 0 0; color:#23825d; font-size:10px; }.settings-result--error { color:#c34455; }
-.settings-grid,.sync-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; padding:14px 0; border-top:1px solid var(--pb-line); }.settings-grid label,.settings-field { display:grid; gap:6px; }.settings-grid span,.settings-field span { color:var(--pb-muted); font-size:10px; font-weight:700; }.settings-grid input,.settings-field input,.settings-field textarea,textarea { width:100%; padding:9px 11px; border:1px solid var(--pb-line); border-radius:10px; outline:none; background:color-mix(in srgb,var(--pb-glass-strong) 58%,transparent); color:var(--pb-ink); }.settings-field { margin-top:12px; }.settings-field--wide { grid-column:1 / -1; margin-top:0; }.settings-field input:focus,.settings-field textarea:focus,textarea:focus { border-color:var(--pb-violet); box-shadow:0 0 0 3px color-mix(in srgb,var(--pb-violet) 14%,transparent); }.settings-field input:disabled { opacity:.45; } textarea { resize:vertical; font:11px/1.45 "SFMono-Regular",Consolas,monospace; }
+.settings-grid,.sync-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; padding:14px 0; border-top:1px solid var(--pb-line); }.settings-grid label,.settings-field { display:grid; gap:6px; }.settings-grid span,.settings-field span { color:var(--pb-muted); font-size:10px; font-weight:700; }.settings-grid input,.settings-field input,.settings-field textarea,textarea { width:100%; padding:9px 11px; border:1px solid var(--pb-line); border-radius:10px; outline:none; background:color-mix(in srgb,var(--pb-glass-strong) 58%,transparent); color:var(--pb-ink); }.settings-field select { width:100%; padding:9px 11px; border:1px solid var(--pb-line); border-radius:10px; outline:none; background:color-mix(in srgb,var(--pb-glass-strong) 58%,transparent); color:var(--pb-ink); cursor:pointer; font:500 12px/1 system-ui,sans-serif; }.settings-field select:disabled { opacity:.45; cursor:not-allowed; }.settings-field { margin-top:12px; }.settings-field--wide { grid-column:1 / -1; margin-top:0; }.settings-field input:focus,.settings-field textarea:focus,textarea:focus { border-color:var(--pb-violet); box-shadow:0 0 0 3px color-mix(in srgb,var(--pb-violet) 14%,transparent); }.settings-field input:disabled { opacity:.45; } textarea { resize:vertical; font:11px/1.45 "SFMono-Regular",Consolas,monospace; }
 .budget-control { display:grid; grid-template-columns:minmax(0,1fr) 84px; overflow:hidden; border:1px solid var(--pb-line); border-radius:10px; background:color-mix(in srgb,var(--pb-glass-strong) 58%,transparent); }.budget-control input { min-width:0; border:0; border-radius:0; background:transparent; }.budget-control select { min-width:0; padding:0 10px; border:0; border-left:1px solid var(--pb-line); outline:0; background:color-mix(in srgb,var(--pb-violet) 7%,transparent); color:var(--pb-ink); cursor:pointer; font:700 11px/1 system-ui,sans-serif; }
 .sync-pulse { display:grid; grid-template-columns:auto 1fr auto; gap:11px; align-items:center; margin-bottom:16px; padding:12px 14px; border:1px solid var(--pb-line); border-radius:14px; background:color-mix(in srgb,var(--pb-glass-strong) 56%,transparent); }.sync-pulse__orb { width:10px; height:10px; border-radius:50%; background:var(--pb-muted); box-shadow:0 0 0 5px color-mix(in srgb,currentColor 12%,transparent); }.sync-pulse--success .sync-pulse__orb { background:#36b37e; }.sync-pulse--warning .sync-pulse__orb { background:#e99a35; }.sync-pulse--error .sync-pulse__orb { background:#e45568; }.sync-pulse--progress .sync-pulse__orb { background:var(--pb-violet); animation:sync-breathe 1.3s ease-in-out infinite; }.sync-pulse div { display:grid; gap:2px; }.sync-pulse strong { font-size:12px; }.sync-pulse span { color:var(--pb-muted); font-size:11px; }.sync-pulse button { border:0; background:transparent; color:var(--pb-violet); cursor:pointer; font-weight:700; }.settings-note { margin:14px 0 0; }
 .settings-footer { position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:64px; padding:12px 22px; border-top:1px solid var(--pb-line); background:color-mix(in srgb,var(--pb-window-bg) 96%,transparent); box-shadow:0 -9px 24px rgb(37 29 62 / 5%); }.settings-footer > span { color:var(--pb-muted); font-size:10px; }.settings-footer div { display:flex; gap:8px; }.settings-footer button { min-height:36px; padding:0 14px; border:1px solid var(--pb-line); border-radius:11px; cursor:pointer; font-weight:700; }.settings-footer .quiet { background:transparent; color:var(--pb-muted); }.settings-footer .primary { border-color:transparent; background:var(--pb-violet); color:var(--pb-on-accent,white); }.settings-footer button:disabled { cursor:wait; opacity:.55; }

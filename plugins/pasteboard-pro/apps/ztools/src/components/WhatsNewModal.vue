@@ -3,6 +3,7 @@ import { onMounted, onUnmounted } from "vue";
 
 defineProps<{
   version?: string;
+  standalone?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -53,8 +54,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="whats-new-backdrop" role="dialog" aria-modal="true" aria-labelledby="whats-new-title" @click.self="emit('close')">
-    <div class="whats-new-modal">
+  <div
+    class="whats-new-backdrop"
+    :class="{ 'whats-new-backdrop--standalone': standalone }"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="whats-new-title"
+    @click.self="emit('close')"
+  >
+    <div class="whats-new-modal" :class="{ 'whats-new-modal--standalone': standalone }">
       <header class="whats-new-header">
         <div class="whats-new-tag">
           <span class="pulse-dot"></span>
@@ -105,6 +113,18 @@ onUnmounted(() => {
   animation: fadeIn 200ms ease-out;
 }
 
+.whats-new-backdrop--standalone {
+  position: static;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  background: var(--pb-window-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+
 .whats-new-modal {
   position: relative;
   width: 100%;
@@ -120,6 +140,27 @@ onUnmounted(() => {
     0 0 0 1px rgba(255, 255, 255, 0.08) inset;
   overflow: hidden;
   animation: slideUp 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.whats-new-modal--standalone {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--pb-window-bg);
+  animation: none;
+}
+
+.whats-new-modal--standalone .whats-new-header {
+  -webkit-app-region: drag;
+}
+
+.whats-new-modal--standalone .whats-new-close,
+.whats-new-modal--standalone .whats-new-btn {
+  -webkit-app-region: no-drag;
 }
 
 .whats-new-header {
@@ -196,6 +237,7 @@ onUnmounted(() => {
   gap: 10px;
   overflow-y: auto;
   scrollbar-width: thin;
+  flex: 1;
 }
 
 .feature-card {

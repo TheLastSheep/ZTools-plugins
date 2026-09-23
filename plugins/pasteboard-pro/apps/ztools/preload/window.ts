@@ -71,7 +71,7 @@ export type OpenShelfOptions = Readonly<{
   contentProtection: boolean;
 }>;
 
-export type AuxiliaryPanel = "privacy" | "sync" | "preview" | "editor";
+export type AuxiliaryPanel = "privacy" | "sync" | "preview" | "editor" | "whatsnew";
 
 export type PanelRequest = Readonly<{
   panel: AuxiliaryPanel;
@@ -88,6 +88,7 @@ const PANEL_SIZES: Readonly<Record<AuxiliaryPanel, Readonly<{ width: number; hei
   sync: { width: 700, height: 660 },
   preview: { width: 820, height: 680 },
   editor: { width: 660, height: 520 },
+  whatsnew: { width: 560, height: 640 },
 };
 
 const requestedWindowBounds = new WeakMap<BrowserWindowHandle, BrowserWindowOptions>();

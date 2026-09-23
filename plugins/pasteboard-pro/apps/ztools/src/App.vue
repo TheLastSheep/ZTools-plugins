@@ -69,7 +69,8 @@ const panelMode =
   panel === "privacy" ||
   panel === "sync" ||
   panel === "preview" ||
-  panel === "editor"
+  panel === "editor" ||
+  panel === "whatsnew"
     ? panel
     : undefined;
 const isShelfMode = params.get("shelf") === "1";
@@ -129,15 +130,10 @@ const hasImageBackground = computed(
 const settingsOpen = ref(false);
 const settingsSaving = ref(false);
 const settingsInitialTab = ref<"general" | "appearance" | "privacy" | "sync">("general");
-const whatsNewOpen = ref(false);
 
 function openWhatsNew(): void {
-  whatsNewOpen.value = true;
-}
-
-function closeWhatsNew(): void {
-  whatsNewOpen.value = false;
   markWhatsNewSeen();
+  window.pasteboardPro?.openPanel("whatsnew");
 }
 const editor = ref<{
   mode: "create" | "edit" | "rename";
@@ -429,20 +425,13 @@ async function handleEffect(effect: PasteboardKeyboardEffect | null): Promise<vo
 
 async function onKeydown(event: KeyboardEvent): Promise<void> {
   if (event.isComposing) return;
-  if (event.key === "Escape") {
-    if (whatsNewOpen.value) {
-      event.preventDefault();
-      closeWhatsNew();
-      return;
-    }
-    if (isShelfMode || panelMode !== undefined) {
-      event.preventDefault();
-      window.close();
-      return;
-    }
+  if (event.key === "Escape" && (isShelfMode || panelMode !== undefined)) {
+    event.preventDefault();
+    window.close();
+    return;
   }
   if (!isShelfMode) return;
-  if (settingsOpen.value || whatsNewOpen.value) return;
+  if (settingsOpen.value) return;
   if (matchesPrimaryShortcut(event, shortcutPlatform, "f")) {
     event.preventDefault();
     document.querySelector<HTMLInputElement>("[data-pb-search]")?.focus();
@@ -1048,8 +1037,8 @@ async function initializeWindow(): Promise<void> {
   }
   await loadHistory();
   await loadPinboards();
-  if (panelMode === undefined && shouldShowWhatsNew()) {
-    whatsNewOpen.value = true;
+  if (panelMode === undefined && isShelfMode && shouldShowWhatsNew()) {
+    openWhatsNew();
   }
 }
 
@@ -1168,9 +1157,10 @@ onBeforeUnmount(() => {
       @show-whats-new="openWhatsNew"
     />
     <WhatsNewModal
-      v-if="whatsNewOpen"
+      v-if="panelMode === 'whatsnew'"
+      standalone
       :version="CURRENT_APP_VERSION"
-      @close="closeWhatsNew"
+      @close="closeWindow"
     />
     <TextEditor
       v-if="panelMode === 'editor' && editor"

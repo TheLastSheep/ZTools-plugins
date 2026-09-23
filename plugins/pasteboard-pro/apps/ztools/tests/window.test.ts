@@ -52,6 +52,21 @@ describe("ZTools shelf window geometry", () => {
     });
   });
 
+  it("centers whatsnew panel in the visible work area", () => {
+    expect(buildPanelWindowOptions(primaryDisplay, "whatsnew")).toMatchObject({
+      x: 440,
+      y: 142,
+      width: 560,
+      height: 640,
+      transparent: false,
+      backgroundColor: "#F7F7FB",
+      frame: false,
+      hasShadow: true,
+      alwaysOnTop: true,
+      webPreferences: { preload: "preload.js" },
+    });
+  });
+
   it("builds a full-width top shelf against the visible work area", () => {
     expect(buildShelfWindowOptions(primaryDisplay, "top")).toMatchObject({
       x: 0,

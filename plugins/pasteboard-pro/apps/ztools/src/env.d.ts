@@ -103,7 +103,7 @@ declare global {
       getPasteStack(): Promise<PasteStackState>;
       savePasteStack(state: PasteStackState): Promise<PasteStackState>;
       openPanel(
-        panel: "privacy" | "sync" | "preview" | "editor",
+        panel: "privacy" | "sync" | "preview" | "editor" | "whatsnew",
         params?: Readonly<Record<string, string>>,
       ): void;
     }>;

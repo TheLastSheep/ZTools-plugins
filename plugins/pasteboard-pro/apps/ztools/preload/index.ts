@@ -429,7 +429,8 @@ function parsedPanelRequest(value: unknown): PanelRequest | undefined {
     panel !== "privacy" &&
     panel !== "sync" &&
     panel !== "preview" &&
-    panel !== "editor"
+    panel !== "editor" &&
+    panel !== "whatsnew"
   ) return undefined;
   if (value.params === undefined) return { panel };
   if (

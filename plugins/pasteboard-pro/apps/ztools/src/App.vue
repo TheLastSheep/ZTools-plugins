@@ -132,8 +132,12 @@ const settingsSaving = ref(false);
 const settingsInitialTab = ref<"general" | "appearance" | "privacy" | "sync">("general");
 
 function openWhatsNew(): void {
-  markWhatsNewSeen();
   window.pasteboardPro?.openPanel("whatsnew");
+}
+
+function closeWhatsNew(): void {
+  markWhatsNewSeen();
+  closeWindow();
 }
 const editor = ref<{
   mode: "create" | "edit" | "rename";
@@ -932,6 +936,9 @@ function onWindowFocus(): void {
   if (isShelfMode) {
     shelfHasFocused = true;
     nativeDialogOpen = false;
+    if (shouldShowWhatsNew()) {
+      openWhatsNew();
+    }
   }
 }
 
@@ -1037,7 +1044,7 @@ async function initializeWindow(): Promise<void> {
   }
   await loadHistory();
   await loadPinboards();
-  if (panelMode === undefined && isShelfMode && shouldShowWhatsNew()) {
+  if (panelMode === undefined && shouldShowWhatsNew()) {
     openWhatsNew();
   }
 }
@@ -1160,7 +1167,7 @@ onBeforeUnmount(() => {
       v-if="panelMode === 'whatsnew'"
       standalone
       :version="CURRENT_APP_VERSION"
-      @close="closeWindow"
+      @close="closeWhatsNew"
     />
     <TextEditor
       v-if="panelMode === 'editor' && editor"

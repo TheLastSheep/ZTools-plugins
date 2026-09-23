@@ -101,6 +101,17 @@ function createSuiteRouter(hostWindow, suiteRoot, currentPage = null, platform =
   return Object.freeze({ openFeature })
 }
 
+const DIAGNOSTIC_CMDS = Object.freeze(new Set(['系统诊断', '系统信息', '诊断报告', '电脑配置', '硬件信息']))
+
+function isExplicitDiagnosticIntent(launchParam) {
+  if (!launchParam || typeof launchParam !== 'object') return false
+  const payload = typeof launchParam.payload === 'string' ? launchParam.payload.trim() : ''
+  if (DIAGNOSTIC_CMDS.has(payload)) return true
+  const cmd = typeof launchParam.cmd === 'string' ? launchParam.cmd.trim() : ''
+  if (DIAGNOSTIC_CMDS.has(cmd)) return true
+  return false
+}
+
 function installSuiteRouter(hostWindow, suiteRoot, platform = process.platform) {
   const page = resolveSuitePage(hostWindow?.location?.href, suiteRoot, platform)
   if (!page) return null
@@ -110,6 +121,21 @@ function installSuiteRouter(hostWindow, suiteRoot, platform = process.platform) 
   if (api && typeof api.onPluginEnter === 'function') {
     api.onPluginEnter((launchParam) => {
       const code = launchParam && typeof launchParam === 'object' ? launchParam.code : null
+      if (!code) return
+      if (code === 'system-diagnostic-report' && !isExplicitDiagnosticIntent(launchParam)) {
+        if (page.kind === 'dashboard') {
+          // 当前已在系统管家主仪表盘，用户通过点击系统管家主图标或搜索插件名打开，保留在仪表盘，绝不跳进系统信息
+          return
+        }
+        // 如果当前在子模块页面，用户通过点击“系统管家”或未指定诊断关键词进入，返回系统管家主看板
+        const pathApi = platformPath(platform)
+        const dashboardTarget = fileHref(pathApi.join(pathApi.resolve(suiteRoot), 'index.html'), platform)
+        if (dashboardTarget !== page.href) {
+          if (typeof hostWindow.location.assign === 'function') hostWindow.location.assign(dashboardTarget)
+          else hostWindow.location.href = dashboardTarget
+        }
+        return
+      }
       router.openFeature(code)
     })
   }
@@ -117,9 +143,11 @@ function installSuiteRouter(hostWindow, suiteRoot, platform = process.platform) 
 }
 
 module.exports = Object.freeze({
+  DIAGNOSTIC_CMDS,
   FEATURE_ROUTES,
   createSuiteRouter,
   installSuiteRouter,
+  isExplicitDiagnosticIntent,
   resolveSuitePage,
   targetForFeature,
 })

@@ -7,7 +7,7 @@ import test from 'node:test'
 import { modules } from '../scripts/config.mjs'
 
 const require = createRequire(import.meta.url)
-const { FEATURE_ROUTES, createSuiteRouter, installSuiteRouter, resolveSuitePage } = require('../public/preload/router.cjs')
+const { DIAGNOSTIC_CMDS, FEATURE_ROUTES, createSuiteRouter, installSuiteRouter, isExplicitDiagnosticIntent, resolveSuitePage } = require('../public/preload/router.cjs')
 const { bootstrap } = require('../public/preload/index.cjs')
 const suiteRoot = path.resolve('/trusted/system-manager')
 const TOOL_NAMES = Object.freeze([
@@ -140,6 +140,59 @@ test('plugin entry lifecycle reads only allowlisted code and ignores payload pat
   onEnter({ code: '../outside' })
   assert.equal(assigned.length, 1)
 })
+
+test('diagnostic intent helper detects explicit diagnostic triggers vs generic entry', () => {
+  assert.equal(DIAGNOSTIC_CMDS.size, 5)
+  for (const cmd of ['系统诊断', '系统信息', '诊断报告', '电脑配置', '硬件信息']) {
+    assert.equal(isExplicitDiagnosticIntent({ code: 'system-diagnostic-report', payload: cmd }), true)
+    assert.equal(isExplicitDiagnosticIntent({ code: 'system-diagnostic-report', cmd }), true)
+    assert.equal(isExplicitDiagnosticIntent({ code: 'system-diagnostic-report', payload: `  ${cmd}  ` }), true)
+  }
+  for (const nonDiag of [null, undefined, {}, { code: 'system-diagnostic-report' }, { code: 'system-diagnostic-report', type: 'over' }, { code: 'system-diagnostic-report', payload: '系统管家' }, { code: 'system-diagnostic-report', payload: '' }]) {
+    assert.equal(isExplicitDiagnosticIntent(nonDiag), false)
+  }
+})
+
+test('dashboard does not navigate to diagnostic report on generic plugin entry or plugin title', () => {
+  let onEnter
+  const { host, assigned } = hostAt(hrefFor('index.html'))
+  host.ztools = { onPluginEnter(callback) { onEnter = callback } }
+  installSuiteRouter(host, suiteRoot)
+
+  // 点击插件图标启动：不带专属触发词，绝不跳进系统信息
+  onEnter({ code: 'system-diagnostic-report' })
+  assert.deepEqual(assigned, [])
+
+  // 通过插件名称“系统管家”启动：绝不跳进系统信息
+  onEnter({ code: 'system-diagnostic-report', payload: '系统管家' })
+  assert.deepEqual(assigned, [])
+
+  onEnter({ code: 'system-diagnostic-report', type: 'over' })
+  assert.deepEqual(assigned, [])
+
+  // 明确输入诊断关键词：跳转至系统信息
+  onEnter({ code: 'system-diagnostic-report', payload: '系统信息' })
+  assert.deepEqual(assigned, [hrefFor('modules/system-diagnostic-report/index.html')])
+
+  // 其他子模块：正常跳转
+  onEnter({ code: 'system-cleaner' })
+  assert.deepEqual(assigned, [
+    hrefFor('modules/system-diagnostic-report/index.html'),
+    hrefFor('modules/system-cleaner/index.html'),
+  ])
+})
+
+test('module page navigates back to dashboard when generic system-manager entry is triggered', () => {
+  let onEnter
+  const { host, assigned } = hostAt(hrefFor('modules/application-uninstaller/index.html'))
+  host.ztools = { onPluginEnter(callback) { onEnter = callback } }
+  installSuiteRouter(host, suiteRoot)
+
+  // 在子模块内点击“系统管家”或无意触发默认 feature：返回 Dashboard 首页
+  onEnter({ code: 'system-diagnostic-report', payload: '系统管家' })
+  assert.deepEqual(assigned, [hrefFor('index.html')])
+})
+
 
 test('bootstrap loads no service on dashboard and exactly one cjs service per module page', () => {
   const dashboardLoads = []

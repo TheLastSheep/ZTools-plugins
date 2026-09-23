@@ -12,34 +12,53 @@ const emit = defineEmits<{
 
 const features = [
   {
+    icon: "☁️",
+    title: "WebDAV 自动定时加密备份",
+    badge: "数据随行",
+    tagClass: "badge--violet",
+    desc: "支持按需自定义备份周期（每 15 分钟至 24 小时），默认每小时后台无感加密上传 WebDAV；休眠唤醒自动补漏，历史数据与自定义分组多端永久安全随行。",
+  },
+  {
     icon: "🖼️",
-    title: "长图宽图自由滑动预览",
+    title: "长图宽图顺畅滑动与分辨率",
     badge: "视觉进化",
-    desc: "长截图上下平滑滑动，全景宽图左右随心看，原图细节一览无余；底部卡片信息清晰呼吸，绝不遮挡。",
+    tagClass: "badge--blue",
+    desc: "智能感知图片宽高比：竖图长截图垂直滑动，全景宽图水平滑动；鼠标悬停即刻展示原始物理分辨率（如 1920×1080），底部信息留白呼吸，绝不遮挡。",
   },
   {
     icon: "⚡",
-    title: "十万级历史秒搜秒开",
+    title: "十万级历史毫秒秒搜",
     badge: "性能突破",
-    desc: "后台专属轻量检索引掣，即使累积 100,000+ 条记录依然秒打秒搜，浮窗轻盈秒开不占电脑内存。",
+    tagClass: "badge--amber",
+    desc: "后台专属轻量 Worker 检索引掣与按页动态水合，即使本地累积 100,000+ 条记录依然秒打秒搜，浮窗轻盈秒开不占电脑内存。",
+  },
+  {
+    icon: "🚀",
+    title: "虚拟化时间线与零闪烁唤起",
+    badge: "丝滑流畅",
+    tagClass: "badge--emerald",
+    desc: "动态视口虚拟滚动，极大削减海量卡片下的渲染压力；首屏数据就绪后平滑显现，彻底消除启动闪烁，并深度校准多屏幕与外接显示器坐标。",
   },
   {
     icon: "🖱️",
     title: "原生拖拽直发与截图入库",
     badge: "顺畅流转",
-    desc: "从时间线直接拖拽卡片到微信、飞书或桌面；一键静默截屏自动沉淀入库，无需手动另存转存。",
-  },
-  {
-    icon: "☁️",
-    title: "WebDAV 自动定时加密备份",
-    badge: "安心无忧",
-    desc: "支持按需自定义备份周期，默认每小时无感静默加密上传 WebDAV，历史数据与自定义分组多端永久安全随行。",
+    tagClass: "badge--pink",
+    desc: "从时间线直接原生拖拽卡片到微信、飞书或桌面；一键静默截屏自动沉淀入库，无需手动另存转存。",
   },
   {
     icon: "⌨️",
-    title: "双系统原生操控手感",
-    badge: "键盘心流",
-    desc: "macOS 保持原生 ⌘ 习惯，Windows/Linux 深度适配 Ctrl；方向键游走、回车即贴、空格大图预览。",
+    title: "跨平台原生操控心流",
+    badge: "键盘掌控",
+    tagClass: "badge--cyan",
+    desc: "macOS 保持原生 ⌘ 习惯，Windows/Linux 深度适配 Ctrl；方向键游走、回车即贴、空格大图预览、快捷键直达设置中心，全键盘行云流水。",
+  },
+  {
+    icon: "🛡️",
+    title: "专属数据隔离与安全守护",
+    badge: "安全加固",
+    tagClass: "badge--slate",
+    desc: "数据全面迁移至插件专属 pluginData 存储目录；附件清理采用 SHA-256 内容寻址白名单双重安全复核，坚如磐石不误删。",
   },
 ];
 
@@ -72,11 +91,11 @@ onUnmounted(() => {
       <header class="whats-new-header">
         <div class="whats-new-tag">
           <span class="pulse-dot"></span>
-          <span>🚀 版本更新 {{ version ?? "v1.3.0" }}</span>
+          <span>🚀 版本更新 {{ version ?? "v1.3.0" }} · 7 大生产力升级</span>
         </div>
         <button type="button" class="whats-new-close" aria-label="关闭更新日志" @click="emit('close')">×</button>
         <h2 id="whats-new-title" class="whats-new-title">全新特性，助你效率翻倍</h2>
-        <p class="whats-new-subtitle">给你更顺手、更丝滑的下一代剪贴板生产力体验</p>
+        <p class="whats-new-subtitle">给你更顺手、更丝滑、更稳定的下一代剪贴板生产力体验</p>
       </header>
 
       <div class="whats-new-body">
@@ -87,7 +106,7 @@ onUnmounted(() => {
           <div class="feature-card__content">
             <div class="feature-card__header">
               <h3 class="feature-card__title">{{ feature.title }}</h3>
-              <span class="feature-card__badge">{{ feature.badge }}</span>
+              <span class="feature-card__badge" :class="feature.tagClass">{{ feature.badge }}</span>
             </div>
             <p class="feature-card__desc">{{ feature.desc }}</p>
           </div>
@@ -134,7 +153,7 @@ onUnmounted(() => {
 .whats-new-modal {
   position: relative;
   width: 100%;
-  max-width: 520px;
+  max-width: 540px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -300,10 +319,50 @@ onUnmounted(() => {
 .feature-card__badge {
   font-size: 10px;
   font-weight: 600;
-  color: var(--pb-violet);
-  background: color-mix(in srgb, var(--pb-violet) 10%, transparent);
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 6px;
+}
+
+.badge--violet {
+  color: var(--pb-violet);
+  background: color-mix(in srgb, var(--pb-violet) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pb-violet) 25%, transparent);
+}
+
+.badge--blue {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.badge--amber {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.badge--emerald {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.badge--pink {
+  color: #ec4899;
+  background: rgba(236, 72, 153, 0.12);
+  border: 1px solid rgba(236, 72, 153, 0.25);
+}
+
+.badge--cyan {
+  color: #06b6d4;
+  background: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}
+
+.badge--slate {
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
 .feature-card__desc {

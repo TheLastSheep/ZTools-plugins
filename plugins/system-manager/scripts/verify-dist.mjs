@@ -177,7 +177,7 @@ for (const field of ['main', 'preload', 'logo']) {
   await requireFile(value)
 }
 
-const expectedFeatures = modules.map((module) => module.id)
+const expectedFeatures = ['system-manager', ...modules.map((module) => module.id)]
 const actualFeatures = Array.isArray(manifest.features) ? manifest.features.map((feature) => feature.code) : []
 if (JSON.stringify(actualFeatures) !== JSON.stringify(expectedFeatures)) {
   throw new Error(`Feature 必须按固定顺序完整声明：${expectedFeatures.join(', ')}`)

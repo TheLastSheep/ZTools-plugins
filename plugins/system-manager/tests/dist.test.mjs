@@ -25,11 +25,11 @@ async function walk(directory) {
   return output
 }
 
-test('assembled manifest publishes five features, 22 tools and auditable root preload files', async () => {
+test('assembled manifest publishes six features, 25 tools and auditable root preload files', async () => {
   const manifest = JSON.parse(await readFile(path.join(distRoot, 'plugin.json'), 'utf8'))
   assert.equal(manifest.name, 'system-manager')
   assert.equal(manifest.preload, 'preload/index.cjs')
-  assert.deepEqual(manifest.features.map((feature) => feature.code), modules.map((module) => module.id))
+  assert.deepEqual(manifest.features.map((feature) => feature.code), ['system-manager', ...modules.map((module) => module.id)])
   assert.deepEqual(Object.keys(manifest.tools), TOOL_NAMES)
   for (const feature of manifest.features) assert.deepEqual(feature.platform, ['darwin', 'win32', 'linux'])
   for (const declaration of Object.values(manifest.tools)) {

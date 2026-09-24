@@ -656,6 +656,13 @@
   },
   "features": [
     {
+      "code": "system-manager",
+      "explain": "系统管家主页：集中查看软硬件工况看板，管理应用卸载、开机启动、垃圾清理与局域网设备",
+      "icon": "logo.svg",
+      "platform": ["darwin", "win32", "linux"],
+      "cmds": ["系统管家", "系统管理", "硬件看板", "仪表盘", "工况看板"]
+    },
+    {
       "code": "system-diagnostic-report",
       "explain": "查看软硬件信息并生成脱敏诊断报告",
       "icon": "logo.svg",

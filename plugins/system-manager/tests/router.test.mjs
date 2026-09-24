@@ -51,7 +51,7 @@ test('five exact module file pages resolve to their fixed feature codes', () => 
     assert.equal(page.kind, 'module')
     assert.equal(page.featureCode, module.id)
   }
-  assert.deepEqual(Object.keys(FEATURE_ROUTES), modules.map((module) => module.id))
+  assert.deepEqual(Object.keys(FEATURE_ROUTES), ['system-manager', ...modules.map((module) => module.id)])
 })
 
 test('router navigates only by fixed code and unknown values return false without navigation', () => {
@@ -159,6 +159,13 @@ test('dashboard does not navigate to diagnostic report on generic plugin entry o
   host.ztools = { onPluginEnter(callback) { onEnter = callback } }
   installSuiteRouter(host, suiteRoot)
 
+  // 默认直接进入系统管家主页：不发生跳转，停留在 Dashboard
+  onEnter({ code: 'system-manager' })
+  assert.deepEqual(assigned, [])
+
+  onEnter({})
+  assert.deepEqual(assigned, [])
+
   // 点击插件图标启动：不带专属触发词，绝不跳进系统信息
   onEnter({ code: 'system-diagnostic-report' })
   assert.deepEqual(assigned, [])
@@ -189,8 +196,11 @@ test('module page navigates back to dashboard when generic system-manager entry 
   installSuiteRouter(host, suiteRoot)
 
   // 在子模块内点击“系统管家”或无意触发默认 feature：返回 Dashboard 首页
-  onEnter({ code: 'system-diagnostic-report', payload: '系统管家' })
+  onEnter({ code: 'system-manager' })
   assert.deepEqual(assigned, [hrefFor('index.html')])
+
+  onEnter({ code: 'system-diagnostic-report', payload: '系统管家' })
+  assert.deepEqual(assigned, [hrefFor('index.html'), hrefFor('index.html')])
 })
 
 

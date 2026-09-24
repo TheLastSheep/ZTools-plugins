@@ -4,6 +4,7 @@ const path = require('node:path')
 const { fileURLToPath, pathToFileURL } = require('node:url')
 
 const FEATURE_ROUTES = Object.freeze(Object.assign(Object.create(null), {
+  'system-manager': 'index.html',
   'system-diagnostic-report': 'modules/system-diagnostic-report/index.html',
   'application-uninstaller': 'modules/application-uninstaller/index.html',
   'startup-manager': 'modules/startup-manager/index.html',
@@ -33,6 +34,7 @@ function trustedPages(suiteRoot, platform = process.platform) {
   const dashboardPath = pathApi.join(root, 'index.html')
   const pages = new Map([[pathKey(dashboardPath, platform), Object.freeze({ kind: 'dashboard', featureCode: null, hashes: Object.freeze(['', '#modules']), filePath: dashboardPath, href: fileHref(dashboardPath, platform) })]])
   for (const [featureCode, route] of Object.entries(FEATURE_ROUTES)) {
+    if (featureCode === 'system-manager') continue
     const hashes = featureCode === 'system-cleaner'
       ? Object.freeze(['', '#main'])
       : featureCode === 'system-diagnostic-report'
@@ -121,19 +123,12 @@ function installSuiteRouter(hostWindow, suiteRoot, platform = process.platform) 
   if (api && typeof api.onPluginEnter === 'function') {
     api.onPluginEnter((launchParam) => {
       const code = launchParam && typeof launchParam === 'object' ? launchParam.code : null
-      if (!code) return
+      if (!code || code === 'system-manager') {
+        router.openFeature('system-manager')
+        return
+      }
       if (code === 'system-diagnostic-report' && !isExplicitDiagnosticIntent(launchParam)) {
-        if (page.kind === 'dashboard') {
-          // 当前已在系统管家主仪表盘，用户通过点击系统管家主图标或搜索插件名打开，保留在仪表盘，绝不跳进系统信息
-          return
-        }
-        // 如果当前在子模块页面，用户通过点击“系统管家”或未指定诊断关键词进入，返回系统管家主看板
-        const pathApi = platformPath(platform)
-        const dashboardTarget = fileHref(pathApi.join(pathApi.resolve(suiteRoot), 'index.html'), platform)
-        if (dashboardTarget !== page.href) {
-          if (typeof hostWindow.location.assign === 'function') hostWindow.location.assign(dashboardTarget)
-          else hostWindow.location.href = dashboardTarget
-        }
+        router.openFeature('system-manager')
         return
       }
       router.openFeature(code)

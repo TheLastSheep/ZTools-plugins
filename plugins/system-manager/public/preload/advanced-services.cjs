@@ -11,6 +11,27 @@ const execFilePromise = util.promisify(execFile)
 
 let hostApiRef = null
 
+let lastCpuTickSample = null
+
+function sampleCpuTicks() {
+  const cpus = os.cpus() || []
+  let user = 0, sys = 0, idle = 0
+  for (const core of cpus) {
+    if (core && core.times) {
+      user += (core.times.user || 0) + (core.times.nice || 0)
+      sys += (core.times.sys || 0) + (core.times.irq || 0)
+      idle += (core.times.idle || 0)
+    }
+  }
+  return {
+    user,
+    sys,
+    idle,
+    total: user + sys + idle,
+    timestamp: Date.now()
+  }
+}
+
 function initHostApi(api) {
   hostApiRef = api
 }
@@ -1106,48 +1127,70 @@ module.exports = {
     const os = require('os')
     const { execSync } = require('child_process')
 
-    // 1. CPU 详情与利用率
+    // 1. CPU 详情与利用率 (计算实时增量 Delta 采样，真实反映此时此刻负荷)
     const cpus = os.cpus() || []
-    let cpuModel = cpus[0]?.model || 'Apple Silicon'
+    let cpuModel = cpus[0]?.model || '处理器'
     cpuModel = cpuModel.replace(/\(R\)|\(TM\)/gi, '').trim()
-    if (!cpuModel || cpuModel.includes('Apple Processor')) {
-      try {
-        const brand = execSync('sysctl -n machdep.cpu.brand_string', { encoding: 'utf8', timeout: 1000 }).trim()
-        if (brand) cpuModel = brand
-      } catch (e) {}
-    }
-
-    let totalUser = 0, totalSys = 0, totalIdle = 0
-    for (const core of cpus) {
-      if (core.times) {
-        totalUser += core.times.user || 0
-        totalSys += core.times.sys || 0
-        totalIdle += core.times.idle || 0
+    if (!cpuModel || cpuModel.includes('Apple Processor') || cpuModel === 'Apple Silicon') {
+      if (process.platform === 'darwin') {
+        try {
+          const brand = execSync('sysctl -n machdep.cpu.brand_string', { encoding: 'utf8', timeout: 1000 }).trim()
+          if (brand) cpuModel = brand
+        } catch (e) {}
       }
     }
-    const totalTicks = totalUser + totalSys + totalIdle || 1
-    const userPct = Number(((totalUser / totalTicks) * 100).toFixed(1))
-    const sysPct = Number(((totalSys / totalTicks) * 100).toFixed(1))
+    const coreCount = cpus.length
+    const brandWithCores = coreCount > 0 ? `${cpuModel} (${coreCount} 核)` : cpuModel
+
+    let currSample = sampleCpuTicks()
+    let prevSample = lastCpuTickSample
+    if (!prevSample || (currSample.timestamp - prevSample.timestamp) > 15000 || (currSample.timestamp - prevSample.timestamp) < 150) {
+      // 首次采样或距上次过久，微延迟 120ms 做第二次采样确保首屏立即拿到真实瞬时利用率
+      await new Promise(r => setTimeout(r, 120))
+      prevSample = currSample
+      currSample = sampleCpuTicks()
+    }
+    lastCpuTickSample = currSample
+
+    const dUser = Math.max(0, currSample.user - prevSample.user)
+    const dSys = Math.max(0, currSample.sys - prevSample.sys)
+    const dIdle = Math.max(0, currSample.idle - prevSample.idle)
+    const dTotal = (dUser + dSys + dIdle) || 1
+
+    const userPct = Number(Math.min(100, Math.max(0, (dUser / dTotal) * 100)).toFixed(1))
+    const sysPct = Number(Math.min(100 - userPct, Math.max(0, (dSys / dTotal) * 100)).toFixed(1))
     const availablePct = Number(Math.max(0, 100 - userPct - sysPct).toFixed(1))
 
-    // Uptime 与估算温度
-    const uptimeSec = os.uptime()
+    // Uptime 格式化
+    const uptimeSec = Math.floor(os.uptime())
     const uptimeDays = Math.floor(uptimeSec / 86400)
     const uptimeHours = Math.floor((uptimeSec % 86400) / 3600)
-    let uptimeText = uptimeDays > 0 ? `${uptimeDays}天` : `${uptimeHours}小时`
+    const uptimeMinutes = Math.floor((uptimeSec % 3600) / 60)
+    let uptimeText = ''
+    if (uptimeDays > 0) {
+      uptimeText = `${uptimeDays}天 ${uptimeHours}小时`
+    } else if (uptimeHours > 0) {
+      uptimeText = `${uptimeHours}小时 ${uptimeMinutes}分钟`
+    } else {
+      uptimeText = `${Math.max(1, uptimeMinutes)}分钟`
+    }
 
     // 温度检测或智能模型估算
     let cpuTemp = 48
-    try {
-      const tempOut = execSync('sysctl -n machdep.xcpm.cpu_thermal_level 2>/dev/null || echo ""', { encoding: 'utf8', timeout: 500 }).trim()
-      const level = parseInt(tempOut, 10)
-      if (!isNaN(level)) {
-        cpuTemp = 45 + level * 12
-      } else {
-        cpuTemp = Math.min(95, Math.max(42, Math.round(42 + (userPct + sysPct) * 0.45)))
+    if (process.platform === 'darwin') {
+      try {
+        const tempOut = execSync('sysctl -n machdep.xcpm.cpu_thermal_level 2>/dev/null || echo ""', { encoding: 'utf8', timeout: 500 }).trim()
+        const level = parseInt(tempOut, 10)
+        if (!isNaN(level)) {
+          cpuTemp = 42 + level * 12
+        } else {
+          cpuTemp = Math.min(95, Math.max(40, Math.round(40 + (userPct + sysPct) * 0.5)))
+        }
+      } catch (e) {
+        cpuTemp = Math.min(95, Math.max(40, Math.round(40 + (userPct + sysPct) * 0.5)))
       }
-    } catch (e) {
-      cpuTemp = Math.min(95, Math.max(42, Math.round(42 + (userPct + sysPct) * 0.45)))
+    } else {
+      cpuTemp = Math.min(95, Math.max(40, Math.round(40 + (userPct + sysPct) * 0.5)))
     }
 
     // 2. 内存详情 (细分活跃、联动、压缩、可用、压力、Swap)
@@ -1210,33 +1253,63 @@ module.exports = {
       if (mUtil) gpuDevUtilPct = parseInt(mUtil[1], 10)
     } catch (e) {}
 
-    // 4. 真实进程 Top 5 提取
+    // 4. 真实进程 Top 5 提取 (支持 macOS / Windows / Linux 跨平台降级)
     const processList = []
     try {
-      const psOut = execSync('ps -axo pid,%cpu,%mem,rss,comm -r', { encoding: 'utf8', timeout: 2000 })
-      const lines = psOut.trim().split('\n').slice(1)
-      for (const line of lines) {
-        const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(.*)$/)
-        if (!m) continue
-        const pid = parseInt(m[1], 10)
-        const cpu = parseFloat(m[2])
-        const memPct = parseFloat(m[3])
-        const rssKb = parseInt(m[4], 10)
-        const comm = m[5]
+      if (process.platform === 'darwin') {
+        const psOut = execSync('ps -axo pid,%cpu,%mem,rss,comm -r', { encoding: 'utf8', timeout: 2000 })
+        const lines = psOut.trim().split('\n').slice(1)
+        for (const line of lines) {
+          const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(.*)$/)
+          if (!m) continue
+          const pid = parseInt(m[1], 10)
+          const cpu = parseFloat(m[2])
+          const memPct = parseFloat(m[3])
+          const rssKb = parseInt(m[4], 10)
+          const comm = m[5]
 
-        let name = comm.split('/').pop()
-        if (name.endsWith('.app')) name = name.replace('.app', '')
-        if (comm.includes('ZTools Helper') || comm.includes('ZTools.app')) name = 'ZTools'
-        else if (comm.includes('Finder')) name = '访达'
-        else if (comm.includes('ChatGPT') || comm.includes('Codex')) name = 'ChatGPT'
-        else if (comm.includes('Google Chrome') || comm.includes('Chrome Helper')) name = 'Google Chrome'
-        else if (comm.includes('Lark') || comm.includes('Feishu')) name = '飞书'
-        else if (comm.includes('Figma')) name = 'Figma'
-        else if (comm.includes('SkyLight') || comm.includes('WindowServer')) name = 'WindowManager'
-        else if (comm.includes('CC Switch') || comm.includes('Switch')) name = 'CC Switch'
+          let name = comm.split('/').pop()
+          if (name.endsWith('.app')) name = name.replace('.app', '')
+          if (comm.includes('ZTools Helper') || comm.includes('ZTools.app')) name = 'ZTools'
+          else if (comm.includes('Finder')) name = '访达'
+          else if (comm.includes('ChatGPT') || comm.includes('Codex')) name = 'ChatGPT'
+          else if (comm.includes('Google Chrome') || comm.includes('Chrome Helper')) name = 'Google Chrome'
+          else if (comm.includes('Lark') || comm.includes('Feishu')) name = '飞书'
+          else if (comm.includes('Figma')) name = 'Figma'
+          else if (comm.includes('SkyLight') || comm.includes('WindowServer')) name = 'WindowManager'
+          else if (comm.includes('CC Switch') || comm.includes('Switch')) name = 'CC Switch'
 
-        const memGb = Number((rssKb / (1024 ** 2)).toFixed(2))
-        processList.push({ pid, name, cpu, memPct, memGb, comm })
+          const memGb = Number((rssKb / (1024 ** 2)).toFixed(2))
+          processList.push({ pid, name, cpu, memPct, memGb, comm })
+        }
+      } else if (process.platform === 'win32') {
+        const psOut = execSync('powershell -NoProfile -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Id, ProcessName, CPU, WorkingSet64 | ConvertTo-Json"', { encoding: 'utf8', timeout: 2500 })
+        const list = JSON.parse(psOut)
+        const items = Array.isArray(list) ? list : (list ? [list] : [])
+        for (const item of items) {
+          if (!item || !item.Id) continue
+          const pid = item.Id
+          const name = item.ProcessName || 'Process'
+          const cpuRaw = typeof item.CPU === 'number' ? item.CPU : 0
+          const cpu = Number((Math.min(100, Math.max(0, cpuRaw / (cpus.length || 1)))).toFixed(1))
+          const memGb = Number(((item.WorkingSet64 || 0) / (1024 ** 3)).toFixed(2))
+          processList.push({ pid, name, cpu, memPct: 0, memGb, comm: name })
+        }
+      } else {
+        const psOut = execSync('ps -axo pid,%cpu,%mem,rss,comm --sort=-%cpu', { encoding: 'utf8', timeout: 2000 })
+        const lines = psOut.trim().split('\n').slice(1)
+        for (const line of lines) {
+          const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(.*)$/)
+          if (!m) continue
+          const pid = parseInt(m[1], 10)
+          const cpu = parseFloat(m[2])
+          const memPct = parseFloat(m[3])
+          const rssKb = parseInt(m[4], 10)
+          const comm = m[5]
+          const name = comm.split('/').pop()
+          const memGb = Number((rssKb / (1024 ** 2)).toFixed(2))
+          processList.push({ pid, name, cpu, memPct, memGb, comm })
+        }
       }
     } catch (e) {}
 
@@ -1251,7 +1324,7 @@ module.exports = {
 
     return {
       cpu: {
-        brand: cpuModel,
+        brand: brandWithCores,
         model: cpuModel,
         cores: cpus.length,
         userPct,

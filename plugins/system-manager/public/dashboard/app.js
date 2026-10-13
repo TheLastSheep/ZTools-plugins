@@ -932,8 +932,8 @@ if (document.readyState === 'loading') {
    Apple M5 风格核心硬件实时工况看板驱动模块
    ========================================================================== */
 
-let hwHistoryCpuUser = [18, 16, 17, 18, 25, 23, 30, 27, 24, 21, 22, 28, 30, 23, 22, 27, 26, 29, 27, 35, 31, 33, 29, 34];
-let hwHistoryCpuSys = [7, 6, 7, 8, 9, 8, 11, 10, 9, 8, 8, 10, 11, 8, 7, 11, 9, 11, 9, 12, 10, 10, 9, 12];
+let hwHistoryCpuUser = [];
+let hwHistoryCpuSys = [];
 
 function generateSvgSmoothPath(dataPoints, width = 240, height = 130, maxVal = 100) {
   if (!dataPoints || dataPoints.length < 2) return { d: '', areaD: '', lastX: 0, lastY: 0 };
@@ -1101,10 +1101,21 @@ async function refreshDetailedHardwareDashboard() {
         if (userValEl) userValEl.textContent = `${Number(cpu.userPct || 0).toFixed(1)} %`;
         if (sysValEl) sysValEl.textContent = `${Number(cpu.systemPct || 0).toFixed(1)} %`;
 
-        hwHistoryCpuUser.push(cpu.userPct || 0);
-        if (hwHistoryCpuUser.length > 24) hwHistoryCpuUser.shift();
-        hwHistoryCpuSys.push(cpu.systemPct || 0);
-        if (hwHistoryCpuSys.length > 24) hwHistoryCpuSys.shift();
+        const uPct = Number(cpu.userPct || 0);
+        const sPct = Number(cpu.systemPct || 0);
+
+        if (hwHistoryCpuUser.length === 0) {
+          // 首次真实采样到达：以当前真实值填充 24 个历史基准点，根除假数据残留与跳变
+          for (let i = 0; i < 24; i++) {
+            hwHistoryCpuUser.push(uPct);
+            hwHistoryCpuSys.push(sPct);
+          }
+        } else {
+          hwHistoryCpuUser.push(uPct);
+          if (hwHistoryCpuUser.length > 24) hwHistoryCpuUser.shift();
+          hwHistoryCpuSys.push(sPct);
+          if (hwHistoryCpuSys.length > 24) hwHistoryCpuSys.shift();
+        }
 
         const userPath = generateSvgSmoothPath(hwHistoryCpuUser, 240, 130, 100);
         const sysPath = generateSvgSmoothPath(hwHistoryCpuSys, 240, 130, 100);

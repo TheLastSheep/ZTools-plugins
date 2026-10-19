@@ -10,7 +10,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "publish": "npm test && ztools publish",
     "verify": "node scripts/verify-dist.mjs",
     "package": "node scripts/package-release.mjs"
+  },
+  "devDependencies": {
+    "@ztools-center/plugin-cli": "^1.2.0"
   }
 }

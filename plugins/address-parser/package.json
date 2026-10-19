@@ -5,7 +5,11 @@
   "description": "ZTools shipping address parser and CSV exporter.",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check app.js && node --check preload.js && node --check core/address-parser.js && node --check core/csv.js && node --check core/exporter.cjs && node --check core/file-drag-grants.cjs && npm test"
+    "check": "node --check app.js && node --check preload.js && node --check core/address-parser.js && node --check core/csv.js && node --check core/exporter.cjs && node --check core/file-drag-grants.cjs && npm test",
+    "publish": "npm run check && ztools publish"
+  },
+  "devDependencies": {
+    "@ztools-center/plugin-cli": "^1.2.0"
   },
   "engines": {
     "node": ">=16.17.0"

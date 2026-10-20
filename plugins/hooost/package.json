@@ -1,6 +1,6 @@
 {
   "name": "hooost",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "本地 hosts 配置管理工具，支持预设配置切换、备份与回滚，兼容 Windows / macOS",
   "type": "module",
   "scripts": {
@@ -42,6 +42,7 @@
     "vite": "^6.0.11",
     "vitest": "^4.1.4",
     "vue-eslint-parser": "^10.4.0",
+    "vue-router": "^4.6.4",
     "vue-tsc": "^2.0.0"
   }
 }

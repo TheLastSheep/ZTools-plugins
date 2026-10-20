@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { WEEKDAY_LABELS } from '../../../types/reminder'
 
@@ -12,12 +12,20 @@ const emit = defineEmits<{
   update: [data: { weekdays: number[]; time: string }]
 }>()
 
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 const weekdays = ref<number[]>([])
 const dailyTime = ref('09:00')
 
 function initDefaults() {
-  weekdays.value = props.initialWeekdays ? [...props.initialWeekdays] : []
+  // 新建时默认全选；编辑时用已有选择
+  weekdays.value = props.initialWeekdays && props.initialWeekdays.length ? [...props.initialWeekdays] : [...ALL_DAYS]
   dailyTime.value = props.initialTime || '09:00'
+}
+
+const allSelected = computed(() => weekdays.value.length === ALL_DAYS.length)
+
+function toggleAll() {
+  weekdays.value = allSelected.value ? [] : [...ALL_DAYS]
 }
 
 function toggleWeekday(day: number) {
@@ -61,7 +69,10 @@ defineExpose({
 
 <template>
   <div class="form-item">
-    <label>提醒星期</label>
+    <div class="weekday-header">
+      <label>提醒星期</label>
+      <button class="btn-select-all" @click="toggleAll">{{ allSelected ? '取消全选' : '全选' }}</button>
+    </div>
     <div class="weekday-selector">
       <button
         v-for="(label, index) in WEEKDAY_LABELS"
@@ -89,6 +100,33 @@ defineExpose({
   font-size: 13px;
   color: var(--el-text-color-secondary);
   margin-bottom: 6px;
+}
+
+.weekday-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.weekday-header label {
+  margin-bottom: 0;
+}
+
+.btn-select-all {
+  padding: 2px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-select-all:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
 }
 
 .weekday-selector {

@@ -1,0 +1,27 @@
+{
+  "name": "multi-search",
+  "title": "多引擎批量搜索",
+  "description": "输入一次关键词，同时打开多个搜索引擎的结果页；引擎按分类管理，勾选即批量搜索。",
+  "version": "2.0.0",
+  "author": "qingfeng",
+  "main": "index.html",
+  "logo": "logo.png",
+  "preload": "preload.js",
+  "features": [
+    {
+      "code": "multi_search",
+      "explain": "多引擎批量搜索",
+      "cmds": [
+        "so",
+        "搜索",
+        "多搜",
+        {
+          "type": "over",
+          "label": "多引擎搜索",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      ]
+    }
+  ]
+}

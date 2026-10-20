@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+
+# 本地/开发残留，不随插件发布
+*.local.json
+uTools搜索配置.json
+转换配置.py

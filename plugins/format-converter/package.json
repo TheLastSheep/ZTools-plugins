@@ -2,7 +2,7 @@
   "name": "ztools-format-converter",
   "version": "0.1.1",
   "private": true,
-  "type": "module",
+  "type": "commonjs",
   "description": "Cross-platform batch format conversion workbench for ZTools.",
   "license": "MIT",
   "scripts": {

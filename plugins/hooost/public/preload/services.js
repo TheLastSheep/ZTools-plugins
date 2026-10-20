@@ -1,11 +1,12 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
-const { exec, execSync } = require('node:child_process')
+const { exec, execFile, execFileSync, execSync } = require('node:child_process')
 const { promisify } = require('node:util')
 
 const APP_DIR_NAME = 'hooost'
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 function escapePowerShellArg(value) {
   return String(value).replace(/'/g, "''")
@@ -26,14 +27,24 @@ function ensureDir(dir) {
 }
 
 function getDataDir() {
-  if (os.platform() === 'win32') {
+  const platform = os.platform()
+
+  if (platform === 'win32') {
     return path.join(
       process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
       APP_DIR_NAME
     )
   }
 
-  return path.join(os.homedir(), 'Library', 'Application Support', APP_DIR_NAME)
+  if (platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', APP_DIR_NAME)
+  }
+
+  // Linux 遵循 XDG 规范存放数据，避免沿用 macOS 的 Library 目录
+  return path.join(
+    process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'),
+    APP_DIR_NAME
+  )
 }
 
 function getHostsPath() {
@@ -95,6 +106,37 @@ function copyFileElevatedOnWindows(sourcePath, targetPath) {
   )
 }
 
+// 查找命令的绝对路径，找不到时返回空字符串；pkexec 出于安全考虑要求被调用程序使用绝对路径
+function findExecutablePath(command) {
+  try {
+    return execFileSync('which', [command], { encoding: 'utf-8', windowsHide: true }).trim()
+  } catch {
+    return ''
+  }
+}
+
+// Linux 提权复制：先用 sudo -n 静默尝试（root 或 NOPASSWD 用户无感通过），
+// 失败后回退到 pkexec 弹出 polkit 图形授权窗口；两者都不可用或用户取消授权时抛出带指引的错误
+async function copyFileElevatedOnLinux(sourcePath, targetPath) {
+  const cpPath = findExecutablePath('cp') || '/usr/bin/cp'
+
+  try {
+    await execFileAsync('sudo', ['-n', cpPath, sourcePath, targetPath], { windowsHide: true })
+    return
+  } catch {
+    // sudo 需要密码或不可用，继续尝试 pkexec
+  }
+
+  try {
+    await execFileAsync('pkexec', [cpPath, sourcePath, targetPath], { windowsHide: true })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `Linux 提权写入失败（需 polkit 图形授权，请确认桌面环境已安装 polkit 认证代理）: ${detail}`
+    )
+  }
+}
+
 function copyFileWithPrivilege(sourcePath, targetPath) {
   try {
     fs.copyFileSync(sourcePath, targetPath)
@@ -139,6 +181,23 @@ async function writeHostsContent(content, hostsPath, platform) {
     return
   }
 
+  // Linux 下 /etc/hosts 属于 root，普通用户直接写入会 EACCES：
+  // 先直接复制（root 运行时可用），失败后走 sudo/pkexec 提权；经 cp 截断写入可保留原文件的属主与权限
+  if (platform === 'linux') {
+    const tmpFile = createTempHostsFile(content)
+
+    try {
+      try {
+        fs.copyFileSync(tmpFile, hostsPath)
+      } catch {
+        await copyFileElevatedOnLinux(tmpFile, hostsPath)
+      }
+    } finally {
+      removeTempFile(tmpFile)
+    }
+    return
+  }
+
   if (platform === 'darwin') {
     await ensureMacHostsWritable(hostsPath)
   }
@@ -156,6 +215,12 @@ function flushDns(platform) {
     if (platform === 'darwin') {
       runCommand('dscacheutil -flushcache')
       runCommand('killall -HUP mDNSResponder')
+      return
+    }
+
+    // Linux 兼容新版 resolvectl 与旧版 systemd-resolve，失败时由外层 try/catch 忽略
+    if (platform === 'linux') {
+      runCommand('resolvectl flush-caches || systemd-resolve --flush-caches')
       return
     }
   } catch {

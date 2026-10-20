@@ -27,7 +27,8 @@ src/
 ├── main.css                   # 全局样式、CSS 变量、明暗主题
 ├── env.d.ts                   # 类型声明（Services 接口、ZTools API）
 ├── toolbox/
-│   ├── ToolboxLayout.vue      # 侧边栏 + 内容区布局（主 UI 框架）
+│   ├── ToolboxLayout.vue      # 侧边栏 + 多标签内容区布局（主 UI 框架，el-tabs 标签条）
+│   ├── HomePage.vue           # 首页（常用统计 + 全部工具分组网格）
 │   └── tools.ts               # 工具注册表（categories 数组 + toolMap）
 ├── tools/                     # 工具组件（侧边栏路由）
 │   ├── Identity/index.vue     # 随机身份信息生成（16 个字段，支持批量/导出）
@@ -48,9 +49,17 @@ public/
 
 ### 路由系统（手动，无 Vue Router）
 
-`App.vue` 将 `route` 设为 `'toolbox'`，由 `ToolboxLayout` 渲染侧边栏。工具通过 `src/toolbox/tools.ts` 中的 `categories` 数组注册，`toolMap`（Map）做 code → Tool 的 O(1) 查找。当前工具通过 `shallowRef` + `<component :is>` 动态渲染。
+`App.vue` 将 `route` 设为 `'toolbox'`，由 `ToolboxLayout` 渲染侧边栏 + 顶部标签条。工具通过 `src/toolbox/tools.ts` 中的 `categories` 数组注册，`toolMap`（Map）做 code → Tool 的 O(1) 查找。
 
-**`setRoute(action)` 逻辑**：查 toolMap → fallback 到第一个工具（Identity）。
+**多标签模型**：`App.vue` 持有 `openTabCodes`（已开标签，有序）与 `activeCode`（当前激活，空串 = 无激活）。点击左侧菜单 / `el-tabs` 切换 → `openTab(code)`（已开则激活，未开则新开）；关闭标签 → `closeTab(code)`（激活右侧邻位，末尾则左侧，全部关完显示首页）。当前工具由 `activeCode` 派生，经 `<KeepAlive>` + `<component :is>` 动态渲染，切换标签不销毁实例，各工具状态保留；无激活 tab 时渲染 `HomePage.vue`。
+
+**首页与常用统计**：`HomePage.vue` 展示「常用」（`frequentTools`：按 `usageCounts` 降序 Top 8，次数相同按注册顺序）与全部工具分组网格，点击走 `openTab`。`usageCounts` 在 `openTab` 时自增，持久化到 ZTools dbStorage（key：`devbox.toolUsage`），无宿主环境时仅内存。
+
+**`setRoute(action)` 逻辑**：`action.code` 命中工具注册表（`toolMap`）即 `openTab(code)`（保留已开标签），否则保持现状（无已开标签则显示首页）。plugin.json 首位是一个专用的 `home` 入口 feature（cmds: `["devbox"]`）——宿主把图标点击伪装成第一个 feature 的 code 回传，`home` 承接了该伪装使判定极简：真实工具的进入（含拼音/模糊搜索词，如「suiji」）code 必然命中注册表，无需 payload 与 cmds 比对。详见 skill pitfalls「onPluginEnter 图标进入」条目。
+
+**onPluginEnter 重注册（3.0.1 修复，勿删）**：宿主在插件隐藏时会重载开发插件视图（重跑 preload 并替换 `window.ztools`），已注册的 enter 回调失效，后续进入事件被宿主缓冲不再派发（表现为重进不切换标签）。App.vue 通过 800ms 定时重注册 + visibilitychange 补注册保证回调挂在最新接口对象上，宿主会回放缓冲的 enter 事件。
+
+**新增工具时注意 KeepAlive**：若工具组件有全局副作用（document 级监听、定时器、matchMedia 监听等），必须同时适配 `onUnmounted`（tab 关闭）与 `onActivated`/`onDeactivated`（tab 切换，挂载/恢复、停用/清理），且挂载函数要幂等（首次挂载 mounted + activated 会连续触发）。参考 Qrcode / TimeConvert / JsonTool / HTMLPreview 的写法。
 
 ### 添加新工具的步骤
 
@@ -58,7 +67,8 @@ public/
 2. 在 `src/toolbox/tools.ts` 的 `categories` 数组中注册（导入组件，定义 code/explain/icon）
 3. 在 `public/plugin.json` 的 features 数组中添加匹配条目（code + cmds）
 4. 如需 Node.js 能力，在 `public/preload/services.js` 添加方法，通过 `window.services` 调用
-5. **同步更新以下文件**（详见"发布检查清单"）：
+5. 如有全局监听/定时器，按「路由系统」一节适配 KeepAlive 生命周期
+6. **同步更新以下文件**（详见"发布检查清单"）：
    - `public/plugin.json` → 更新 `version` 和 `description`
    - `package.json` → 同步更新 `version`（与 plugin.json 保持一致）
    - `README.md` → 更新工具列表（简要列出工具名和触发指令即可，无需详细功能描述）
@@ -68,7 +78,7 @@ public/
 每次新增工具或修改功能后，**必须**完成以下同步更新：
 
 1. **版本号**：`public/plugin.json` 的 `version` 和 `package.json` 的 `version` 同步递增（遵循 semver：新功能 minor +1，修复 patch +1）
-2. **插件描述**：`public/plugin.json` 的 `description` 更新为包含新工具的概要描述
+2. **插件描述**：`public/plugin.json` 的 `description` 只表达产品理念（只做实际开发中会用到的工具、真正提效），**不罗列工具清单**；新增/删除工具时无需改动描述
 3. **README.md**：在"工具列表"章节简要补充新工具（工具名 + 触发指令，2-3 行即可，不需要详细功能说明）
 4. **插件名称**：一般不需要改动，仅当工具集定位发生重大变化时才更新 `name` / `title`
 

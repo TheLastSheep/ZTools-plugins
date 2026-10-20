@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, shallowRef } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Warning } from '@element-plus/icons-vue'
 import { EditorView, basicSetup } from 'codemirror'
@@ -40,14 +40,78 @@ function formatValue(v: unknown, type: string): string {
 }
 
 // === 智能解析（自动去转义）===
-function smartParse(text: string): { obj: unknown; error: string; unescaped: boolean } {
+// 单次还原转义：返回还原后的文本；无法还原返回 null。
+// 覆盖两类来源：带外层引号的字符串字面量（"[{\"a\":1}]"），
+// 以及从日志/字符串字面量复制后丢了外层引号、只剩 \" 转义的文本（[{\"a\":1}]）
+function unescapeOnce(text: string): string | null {
+  if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
+    try { return JSON.parse(text) as string } catch { return text.slice(1, -1) }
+  }
+  if (/\\["\\]/.test(text)) {
+    try { return JSON.parse('"' + text + '"') as string } catch {
+      // 存在裸引号/字面换行等非标准形态，按转义对逐个消费，只还原 \" 与 \\
+      return text.replace(/\\[\s\S]/g, (m) => {
+        const c = m[1]
+        return c === '"' ? '"' : c === '\\' ? '\\' : m
+      })
+    }
+  }
+  return null
+}
+
+// 碎片补全：多个 JSON 值缺外层 [] 的拼接 → 包一层 [] 再解析。
+// 两级尝试：①逗号拼接 {...},{...} 直接包；②无逗号拼接 {...}{...} 先在相邻值之间补逗号
+// （补逗号前用引号保护隔离字符串字面量，避免值内恰好出现 }{ 被误伤）
+function parseAsFragment(text: string): { obj: unknown } | null {
+  const t = text.trim()
+  const paired = (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))
+  if (!paired) return null
+  try { return { obj: JSON.parse('[' + t + ']') } } catch { /* 无逗号拼接形态，继续 */ }
+  const { result, store } = protectQuotes(t)
+  const joined = restoreQuotes(
+    result
+      .replace(/\}\s*\{/g, '},{')
+      .replace(/\]\s*\[/g, '],[')
+      .replace(/\}\s*\[/g, '},[')
+      .replace(/\]\s*\{/g, '],{'),
+    store
+  )
+  if (joined === t) return null
+  try { return { obj: JSON.parse('[' + joined + ']') } } catch { return null }
+}
+
+// 直接解析失败后的兜底链：逐层还原转义（最多 3 层）→ 碎片补全。
+// repaired 表示内容被结构性补全（补了外层 []），不只是去转义
+function parseFallback(text: string): { obj: unknown; unescaped: boolean; repaired: boolean } | null {
+  let s = text
+  let unescaped = false
+  for (let i = 0; i < 3; i++) {
+    const inner = unescapeOnce(s)
+    if (inner === null) break
+    const t = inner.trim()
+    if (!t || t === s) break
+    unescaped = true
+    try { return { obj: JSON.parse(t), unescaped, repaired: false } } catch { /* 继续还原下一层 */ }
+    const frag = parseAsFragment(t)
+    if (frag) return { obj: frag.obj, unescaped, repaired: true }
+    s = t
+  }
+  // 没有转义也要试碎片补全（{...},{...} 原样粘贴的形态）
+  const frag = parseAsFragment(s)
+  if (frag) return { obj: frag.obj, unescaped: false, repaired: true }
+  return null
+}
+
+function smartParse(text: string): { obj: unknown; error: string; unescaped: boolean; repaired: boolean; direct: boolean } {
   const trimmed = text.trim()
-  if (!trimmed) return { obj: undefined, error: '', unescaped: false }
+  if (!trimmed) return { obj: undefined, error: '', unescaped: false, repaired: false, direct: false }
   let obj: unknown
   try {
     obj = JSON.parse(trimmed)
   } catch (e) {
-    return { obj: undefined, error: (e as Error).message, unescaped: false }
+    const r = parseFallback(trimmed)
+    if (r) return { obj: r.obj, error: '', unescaped: r.unescaped, repaired: r.repaired, direct: false }
+    return { obj: undefined, error: (e as Error).message, unescaped: false, repaired: false, direct: false }
   }
   // 若结果仍是字符串，尝试再 parse 一次（处理被转义的 JSON 字符串）
   if (typeof obj === 'string') {
@@ -55,25 +119,27 @@ function smartParse(text: string): { obj: unknown; error: string; unescaped: boo
     if (inner.startsWith('{') || inner.startsWith('[')) {
       try {
         const obj2 = JSON.parse(inner)
-        return { obj: obj2, error: '', unescaped: true }
+        return { obj: obj2, error: '', unescaped: true, repaired: false, direct: true }
       } catch {
         // 内层非 JSON，返回字符串本身
       }
     }
-    return { obj, error: '', unescaped: false }
+    return { obj, error: '', unescaped: false, repaired: false, direct: true }
   }
-  return { obj, error: '', unescaped: false }
+  return { obj, error: '', unescaped: false, repaired: false, direct: true }
 }
 
 const parseResult = computed(() => {
   const t = textContent.value.trim()
-  if (!t) return { obj: undefined as unknown, error: '', empty: true, unescaped: false }
+  if (!t) return { obj: undefined as unknown, error: '', empty: true, unescaped: false, repaired: false, direct: false }
   const r = smartParse(t)
   return { ...r, empty: false }
 })
 
 const hasContent = computed(() => !!textContent.value.trim())
 const isValid = computed(() => !parseResult.value.empty && !parseResult.value.error)
+// 内容能解析出来，但原始输入本身不是标准 JSON（靠去转义/补全数组才解析成功）
+const needsRepair = computed(() => isValid.value && !parseResult.value.direct)
 
 // === 引号保护（删除注释时避免误伤字符串字面量）===
 const SEP_Q = '\x00__Q'
@@ -92,19 +158,19 @@ function setError(msg: string) { errorMsg.value = msg; statusMsg.value = '' }
 
 // === 操作（全部原地修改 textContent，编辑器通过 watch 同步）===
 function format() {
-  const { obj, error, unescaped } = parseResult.value
+  const { obj, error, unescaped, repaired } = parseResult.value
   if (error) { setError(error); return }
   if (obj === undefined) { setError('内容为空'); return }
   textContent.value = JSON.stringify(obj, null, 2)
-  setStatus(unescaped ? '已自动去除转义并格式化' : '格式化成功')
+  setStatus(unescaped ? '已自动去除转义并格式化' : repaired ? '已补全外层数组并格式化' : '格式化成功')
 }
 
 function minify() {
-  const { obj, error, unescaped } = parseResult.value
+  const { obj, error, unescaped, repaired } = parseResult.value
   if (error) { setError(error); return }
   if (obj === undefined) { setError('内容为空'); return }
   textContent.value = JSON.stringify(obj)
-  setStatus(unescaped ? '已自动去转义并压缩' : '压缩成功')
+  setStatus(unescaped ? '已自动去转义并压缩' : repaired ? '已补全外层数组并压缩' : '压缩成功')
 }
 
 function escapeJson() {
@@ -136,8 +202,15 @@ function unescapeJson() {
       textContent.value = JSON.stringify(result, null, 2)
       setStatus('已格式化')
     }
-  } catch (e) {
-    setError((e as Error).message)
+  } catch {
+    // 直接解析失败：还原转义 / 碎片补全后再解析（覆盖丢了外层引号的 \" 转义形态、多对象拼接形态）
+    const r = parseFallback(t)
+    if (r) {
+      textContent.value = JSON.stringify(r.obj, null, 2)
+      setStatus(r.unescaped ? '已去除转义并格式化' : '已补全外层数组并格式化')
+    } else {
+      setError('内容不是可识别的转义 JSON 字符串')
+    }
   }
 }
 
@@ -291,6 +364,20 @@ function themeExtension() {
 
 let mediaCleanup: (() => void) | null = null
 
+/** 挂载系统主题切换监听（幂等，KeepAlive 挂载/激活时调用） */
+function attachThemeListener() {
+  if (mediaCleanup || !view.value) return
+  const mql = window.matchMedia('(prefers-color-scheme: dark)')
+  const onChange = () => {
+    view.value?.dispatch({ effects: themeCompartment.reconfigure(themeExtension()) })
+  }
+  mql.addEventListener('change', onChange)
+  mediaCleanup = () => {
+    mql.removeEventListener('change', onChange)
+    mediaCleanup = null
+  }
+}
+
 onMounted(() => {
   if (!editorHost.value) return
   const v = new EditorView({
@@ -317,12 +404,7 @@ onMounted(() => {
   })
   view.value = v
 
-  const mql = window.matchMedia('(prefers-color-scheme: dark)')
-  const onChange = () => {
-    v.dispatch({ effects: themeCompartment.reconfigure(themeExtension()) })
-  }
-  mql.addEventListener('change', onChange)
-  mediaCleanup = () => mql.removeEventListener('change', onChange)
+  attachThemeListener()
 })
 
 onUnmounted(() => {
@@ -330,6 +412,13 @@ onUnmounted(() => {
   view.value = null
   mediaCleanup?.()
   mediaCleanup = null
+})
+
+// 多标签 KeepAlive：切走时移除主题监听，切回时重挂
+onActivated(() => attachThemeListener())
+
+onDeactivated(() => {
+  mediaCleanup?.()
 })
 
 // 操作修改 textContent 时同步到编辑器（避免与 updateListener 形成循环）
@@ -402,6 +491,19 @@ if ((window as any).ztools?.onPluginEnter) {
       </div>
     </div>
 
+    <!-- 状态行：JSON 状态在前，操作状态在后，一行显示在编辑器上方 -->
+    <div v-if="hasContent || errorMsg || statusMsg" class="status-line">
+      <span v-if="hasContent && isValid && !needsRepair" class="json-status valid">✓ 有效 JSON</span>
+      <span v-else-if="hasContent && needsRepair" class="json-status repair">⚠ 非标准 JSON（可自动修复）</span>
+      <span v-else-if="hasContent" class="json-status invalid">✗ 无效 JSON</span>
+      <span v-if="errorMsg" class="op-status error" :title="errorMsg">
+        <el-icon class="status-icon"><Warning /></el-icon>
+        <span class="op-text">{{ errorMsg }}</span>
+      </span>
+      <span v-else-if="statusMsg" class="op-status success">{{ statusMsg }}</span>
+      <span v-if="stats" class="stats">{{ stats.chars }} 字符 · {{ stats.lines }} 行</span>
+    </div>
+
     <!-- 内容区 -->
     <div class="content-area">
       <!-- 编辑视图：CodeMirror 6 -->
@@ -434,36 +536,25 @@ if ((window as any).ztools?.onPluginEnter) {
         <div v-else class="empty-hint">内容非有效 JSON，无法生成树形视图</div>
       </div>
     </div>
-
-    <div v-if="statusMsg || errorMsg" class="status-bar" :class="{ error: !!errorMsg, success: !errorMsg }">
-      <el-icon v-if="errorMsg" class="status-icon"><Warning /></el-icon>
-      <span>{{ errorMsg || statusMsg }}</span>
-    </div>
-
-    <div v-if="stats" class="stats-bar">
-      <span>{{ stats.chars }} 字符 · {{ stats.lines }} 行</span>
-      <span v-if="isValid" class="valid-tag">✓ 有效 JSON</span>
-      <span v-else-if="hasContent" class="invalid-tag">✗ 无效 JSON</span>
-    </div>
   </div>
 </template>
 
 <style scoped>
-.json-tool { padding: 12px; max-width: 820px; margin: 0 auto; font-size: 13px; }
-h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
-.desc { color: #909399; margin: 0 0 12px; font-size: 13px; }
+.json-tool { padding: 12px; max-width: 820px; margin: 0 auto; font-size: 13px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; flex-shrink: 0; }
+.desc { color: #909399; margin: 0 0 12px; font-size: 13px; flex-shrink: 0; }
 
-.view-bar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; margin-bottom: 8px; }
+.view-bar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; margin-bottom: 8px; flex-shrink: 0; }
 .view-bar .view-tabs { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .view-bar .view-tabs :deep(.el-button) { color: #909399; }
 .view-bar .view-tabs :deep(.el-button.active) { color: #667eea; font-weight: 600; }
 .view-bar .ops { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: 1; min-width: 0; }
 .view-bar .view-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
-.content-area { margin-bottom: 10px; }
+.content-area { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
 
 /* === CodeMirror 编辑器容器 === */
-.cm-editor-host { height: 440px; border: 1px solid var(--border-color, #dcdfe6); border-radius: 6px; overflow: hidden; background: var(--bg-main, #fff); }
+.cm-editor-host { flex: 1; min-height: 0; border: 1px solid var(--border-color, #dcdfe6); border-radius: 6px; overflow: hidden; background: var(--bg-main, #fff); }
 .cm-editor-host :deep(.cm-editor) { height: 100%; font-size: 13px; }
 .cm-editor-host :deep(.cm-editor.cm-focused) { outline: none; }
 .cm-editor-host :deep(.cm-scroller) { font-family: 'Consolas', 'Courier New', monospace; line-height: 1.6; }
@@ -474,7 +565,7 @@ h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
 /* 语法错误提示（lint tooltip）层级提升，避免被容器裁剪 */
 .cm-editor-host :deep(.cm-tooltip) { z-index: 100; }
 
-.readonly-view { border: 1px solid var(--border-color, #dcdfe6); border-radius: 6px; background: var(--bg-main, #fff); max-height: 440px; overflow-y: auto; }
+.readonly-view { flex: 1; min-height: 0; border: 1px solid var(--border-color, #dcdfe6); border-radius: 6px; background: var(--bg-main, #fff); overflow-y: auto; }
 .empty-hint { padding: 32px 14px; text-align: center; color: #909399; font-size: 12px; }
 .truncated-hint { padding: 8px 12px; text-align: center; color: #e6a23c; font-size: 12px; border-top: 1px solid var(--border-color, #eee); }
 
@@ -499,14 +590,17 @@ h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
 .tree-type.tv-array { background: #f0e6ff; color: #6f42c1; }
 .tree-type.tv-object { background: #f0f0f0; color: #606266; }
 
-.status-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 12px; }
-.status-bar.success { background: #f0f9eb; color: #67c23a; }
-.status-bar.error { background: #fef0f0; color: #f56c6c; }
-.status-icon { font-size: 14px; }
-
-.stats-bar { display: flex; gap: 16px; padding: 6px 12px; font-size: 12px; color: #909399; }
-.valid-tag { color: #67c23a; }
-.invalid-tag { color: #f56c6c; }
+.status-line { display: flex; align-items: center; gap: 12px; min-width: 0; margin-bottom: 8px; font-size: 12px; flex-shrink: 0; }
+.json-status { flex-shrink: 0; font-weight: 600; }
+.json-status.valid { color: #67c23a; }
+.json-status.repair { color: #e6a23c; }
+.json-status.invalid { color: #f56c6c; }
+.op-status { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.op-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-status.success { color: #67c23a; }
+.op-status.error { color: #f56c6c; }
+.status-icon { font-size: 14px; flex-shrink: 0; }
+.stats { margin-left: auto; color: #909399; flex-shrink: 0; }
 
 @media (prefers-color-scheme: dark) {
   .desc { color: #8a8a8a; }
@@ -536,9 +630,7 @@ h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
   .tree-type.tv-array { background: #2e1a3a; color: #c678dd; }
   .tree-type.tv-object { background: #3a3a3a; color: #aaa; }
   .tree-toggle { color: #8a8a8a; }
-  .status-bar.success { background: #1a2e1a; color: #67c23a; }
-  .status-bar.error { background: #2e1a1a; color: #f56c6c; }
-  .stats-bar { color: #8a8a8a; }
+  .stats { color: #8a8a8a; }
   h2 { color: #e0e0e0; }
 }
 </style>

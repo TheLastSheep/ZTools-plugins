@@ -1,35 +1,15 @@
-const fs = require('node:fs')
-const path = require('node:path')
+const fs = require('fs')
+const path = require('path')
+const http = require('http')
+const https = require('https')
+const crypto = require('crypto')
+const urlParser = require('url')
 
-// 通过 window 对象向渲染进程注入 nodejs 能力
-window.services = {
-  // 读文件
-  readFile(file) {
-    return fs.readFileSync(file, { encoding: 'utf-8' })
-  },
-  // 文本写入到下载目录
-  writeTextFile(text) {
-    const filePath = path.join(window.ztools.getPath('downloads'), Date.now().toString() + '.txt')
-    fs.writeFileSync(filePath, text, { encoding: 'utf-8' })
-    return filePath
-  },
-  // 图片写入到下载目录
-  writeImageFile(base64Url) {
-    const matchs = /^data:image\/([a-z]{1,20});base64,/i.exec(base64Url)
-    if (!matchs) return
-    const filePath = path.join(
-      window.ztools.getPath('downloads'),
-      Date.now().toString() + '.' + matchs[1]
-    )
-    fs.writeFileSync(filePath, base64Url.substring(matchs[0].length), { encoding: 'base64' })
-    return filePath
-  }
-}
+// 同一套 preload 同时服务 uTools 与 ztools,运行时识别平台全局对象
+const getApi = () => globalThis.ztools ?? globalThis.utools
 
-const http = require('node:http');
-const https = require('node:https');
-const crypto = require('node:crypto');
-const urlParser = require('node:url');
+// 收藏目录名沿用各平台的历史命名,避免老用户已下载的收藏文件失效
+const collectedDirName = () => globalThis.utools ? 'collectedEmoticons' : 'ztoolsCollectedEmoticons'
 
 /**
  * 检查目录是否存在，不存在则新建
@@ -45,7 +25,7 @@ window.checkOrCreateDirectory = (directoryPath) => {
 /**
  * 检查收藏目录是否存在，不存在则新建
  */
-window.checkOrCreateCollectedDirectory = () => window.checkOrCreateDirectory(`${ztools.getPath('userData')}/ztoolsCollectedEmoticons`)
+window.checkOrCreateCollectedDirectory = () => window.checkOrCreateDirectory(`${getApi().getPath('userData')}/${collectedDirName()}`)
 
 /**
  * 二次复制策略,gif直接使用copyFile,其他格式先使用copyImage,失败则使用copyFile重试复制
@@ -55,17 +35,18 @@ window.checkOrCreateCollectedDirectory = () => window.checkOrCreateDirectory(`${
 window.tryCopy = (destFile) => {
   // 如果是gif，则用文件函数复制,copyFile方法一般不会失败
   if (destFile.endsWith("gif")) {
-    return ztools.copyFile(destFile)
+    return getApi().copyFile(destFile)
   }
 
   // 其他格式尝试使用copyImage方法,但是可能失败,则使用copyFile重试
-  let copyResult = ztools.copyImage(destFile)
+  let copyResult = getApi().copyImage(destFile)
   if (!copyResult) {
-    copyResult = ztools.copyFile(destFile)
+    copyResult = getApi().copyFile(destFile)
   }
 
   return copyResult
 }
+
 /**
  * 复制图片到剪贴板
  * @param filePath
@@ -82,11 +63,11 @@ window.copyImage = ({imgSrc, fileSrc}, callback) => {
   const copyResult = window.tryCopy(destFile)
 
   if (!copyResult) {
-    ztools.showNotification("复制失败,麻烦告知作者操作流程进行问题排查,感谢~")
+    getApi().showNotification("复制失败,麻烦告知作者操作流程进行问题排查,感谢~")
     return
   }
   callback && callback()
-  ztools.hideMainWindow()
+  getApi().hideMainWindow()
 }
 
 // 移除本地文件
@@ -111,7 +92,7 @@ window.composeFilePath = (url, config = {}) => {
   // 所有静态和动态类型图片，都统一使用gif格式,避免发出去的表情包不动
   let fileSuffix = config['fileSuffix'] || '.gif'
   // 组装文件路径,需要将文件后缀拼接上/未指定下载目录，使用temp目录
-  return `${config['downloadPath'] || ztools.getPath("temp")}/${fileName}${fileSuffix}`
+  return `${config['downloadPath'] || getApi().getPath("temp")}/${fileName}${fileSuffix}`
 }
 
 /**
@@ -119,21 +100,29 @@ window.composeFilePath = (url, config = {}) => {
  * @param url
  * @param filePath
  * @param config
- * @returns {Promise<unknown>}
+ * @returns {Promise<string>} 下载完成后 resolve 文件路径;网络失败时 reject
  */
 const downloadRemoteFile = (url, filePath, config) => {
-  const {host, path} = urlParser.parse(url)
+  const parsed = urlParser.parse(url)
   const request = url.startsWith('https') ? https : http
 
-  return new Promise(resolve => request.get({
-    host: `${host.replace('https://', '').replace('http://', '')}`,
-    path: path,
-    method: 'get',
-    headers: config['headers'] || {}
-  }, res => {
-    res.pipe(fs.createWriteStream(filePath))
-        .on('close', () => resolve(filePath))
-  }))
+  return new Promise((resolve, reject) => {
+    const req = request.get({
+      host: parsed.host,
+      path: parsed.path,
+      method: 'get',
+      headers: config['headers'] || {}
+    }, res => {
+      // 非 2xx 响应(404/403 等)同样落盘,由调用方的体积校验(<1KB)兜底清理
+      res.pipe(fs.createWriteStream(filePath))
+          .on('close', () => resolve(filePath))
+          .on('error', reject)
+    })
+    // 网络错误(DNS 失败/连接中断等)必须走 reject,
+    // 否则调用方的 Promise.all 永远挂起,且会以 Uncaught Error 形式崩溃
+    req.on('error', reject)
+    req.setTimeout(30000, () => req.destroy(new Error(`下载超时: ${url}`)))
+  })
 }
 
 const fetchHostMap = (host) => {
@@ -148,19 +137,17 @@ const fetchHostMap = (host) => {
 }
 
 /**
- * 下载图片到本地临时目录
+ * 下载图片到本地临时目录/收藏目录
  * @param url
  * @param config
  */
-window.downloadImage = async (url, config = {}) => {
+const doDownloadImage = async (url, config = {}, filePath) => {
   // 默认组装Referer header头
   const {host} = urlParser.parse(url)
   config = Object.assign({'headers': {'Referer': fetchHostMap(host)}, ...config})
 
-  // 组装文件路径,需要将文件后缀拼接上
-  const filePath = composeFilePath(url, config)
   // 旧表情包
-  const checkFilePath = composeFilePath(url, Object.assign(config, {fileSuffix: '.jpg'}))
+  const checkFilePath = composeFilePath(url, Object.assign({}, config, {fileSuffix: '.jpg'}))
 
   if (!fs.existsSync(filePath) && fs.existsSync(checkFilePath)) {
     // 历史表情包存在,直接复制成新的路径
@@ -191,9 +178,29 @@ window.downloadImage = async (url, config = {}) => {
   }
 }
 
+// 同一目标文件的并发下载合并为同一个 Promise:
+// 收藏时会同时触发「单张下载」和「收藏夹全量补下载」,不合并的话
+// 两个请求会交叉写入同一个文件
+const downloadTasks = new Map()
+
+window.downloadImage = (url, config = {}) => {
+  // 平台边界兜底:过滤无效链接(undefined/"undefined"/非 http 协议等)
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return Promise.resolve(null)
+  }
+  const filePath = composeFilePath(url, config)
+  if (downloadTasks.has(filePath)) {
+    return downloadTasks.get(filePath)
+  }
+  const task = doDownloadImage(url, config, filePath)
+      .finally(() => downloadTasks.delete(filePath))
+  downloadTasks.set(filePath, task)
+  return task
+}
+
 /**
  * 使用浏览器打开超链接
  * @param link
  * @returns {*}
  */
-window.openLink = (link) => ztools.shellOpenExternal(link)
+window.openLink = (link) => getApi().shellOpenExternal(link)

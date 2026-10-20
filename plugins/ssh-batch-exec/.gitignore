@@ -1,0 +1,13 @@
+# 只排除项目根目录的 node_modules
+# public/node_modules（preload 的 CommonJS 依赖）和 dist/node_modules（构建产物里的依赖）必须被跟踪
+/node_modules/
+
+# 构建缓存
+.vite/
+*.tsbuildinfo
+
+# 其他
+*.log
+.DS_Store
+.idea/
+.vscode/

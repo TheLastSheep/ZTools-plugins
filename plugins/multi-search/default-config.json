@@ -1,0 +1,167 @@
+{
+  "app": "多引擎批量搜索",
+  "version": 2,
+  "config": {
+    "version": 2,
+    "groups": [
+      {
+        "id": "group_search",
+        "name": "搜索引擎",
+        "engines": [
+          {
+            "id": "engine_google",
+            "name": "Google",
+            "url": "https://www.google.com/search?q={q}"
+          },
+          {
+            "id": "engine_bing",
+            "name": "Bing",
+            "url": "https://www.bing.com/search?q={q}"
+          },
+          {
+            "id": "engine_baidu",
+            "name": "百度",
+            "url": "https://www.baidu.com/s?wd={q}"
+          },
+          {
+            "id": "engine_duckduckgo",
+            "name": "DuckDuckGo",
+            "url": "https://duckduckgo.com/?q={q}"
+          },
+          {
+            "id": "engine_yandex",
+            "name": "Yandex",
+            "url": "https://yandex.com/search/?text={q}"
+          },
+          {
+            "id": "engine_sogou",
+            "name": "搜狗",
+            "url": "https://www.sogou.com/web?query={q}"
+          }
+        ]
+      },
+      {
+        "id": "group_common",
+        "name": "常用",
+        "engines": [
+          {
+            "id": "engine_zhihu",
+            "name": "知乎",
+            "url": "https://www.zhihu.com/search?q={q}"
+          },
+          {
+            "id": "engine_bilibili",
+            "name": "Bilibili",
+            "url": "https://search.bilibili.com/all?keyword={q}"
+          },
+          {
+            "id": "engine_youtube",
+            "name": "YouTube",
+            "url": "https://www.youtube.com/results?search_query={q}"
+          },
+          {
+            "id": "engine_weibo",
+            "name": "微博",
+            "url": "https://s.weibo.com/weibo?q={q}"
+          },
+          {
+            "id": "engine_xiaohongshu",
+            "name": "小红书",
+            "url": "https://www.xiaohongshu.com/search_result?keyword={q}&type=51"
+          },
+          {
+            "id": "engine_douban",
+            "name": "豆瓣",
+            "url": "https://www.douban.com/search?q={q}"
+          }
+        ]
+      },
+      {
+        "id": "group_forum",
+        "name": "论坛",
+        "engines": [
+          {
+            "id": "engine_v2ex",
+            "name": "V2EX",
+            "url": "https://www.google.com/search?q=site%3Av2ex.com+{q}"
+          },
+          {
+            "id": "engine_linuxdo",
+            "name": "Linux.do",
+            "url": "https://www.google.com/search?q=site%3Alinux.do+{q}"
+          },
+          {
+            "id": "engine_tieba",
+            "name": "百度贴吧",
+            "url": "https://tieba.baidu.com/f/search/res?qw={q}"
+          },
+          {
+            "id": "engine_reddit",
+            "name": "Reddit",
+            "url": "https://www.reddit.com/search/?q={q}"
+          }
+        ]
+      },
+      {
+        "id": "group_knowledge",
+        "name": "知识",
+        "engines": [
+          {
+            "id": "engine_wikipedia",
+            "name": "Wikipedia",
+            "url": "https://zh.wikipedia.org/w/index.php?search={q}"
+          },
+          {
+            "id": "engine_moegirl",
+            "name": "萌娘百科",
+            "url": "https://zh.moegirl.org.cn/index.php?search={q}"
+          },
+          {
+            "id": "engine_stackoverflow",
+            "name": "Stack Overflow",
+            "url": "https://stackoverflow.com/search?q={q}"
+          },
+          {
+            "id": "engine_quora",
+            "name": "Quora",
+            "url": "https://www.quora.com/search?q={q}"
+          }
+        ]
+      },
+      {
+        "id": "group_site",
+        "name": "站内搜索",
+        "engines": [
+          {
+            "id": "engine_sspai",
+            "name": "少数派",
+            "url": "https://www.google.com/search?q=site%3Asspai.com+{q}"
+          },
+          {
+            "id": "engine_notion",
+            "name": "Notion",
+            "url": "https://www.google.com/search?q=site%3Anotion.site+{q}"
+          },
+          {
+            "id": "engine_feishu",
+            "name": "飞书",
+            "url": "https://www.google.com/search?q=site%3Afeishu.cn+{q}"
+          }
+        ]
+      }
+    ],
+    "selectedIds": [
+      "engine_google",
+      "engine_bing",
+      "engine_baidu"
+    ],
+    "hotkey": {
+      "ctrl": true,
+      "alt": false,
+      "shift": true,
+      "key": "K",
+      "code": "KeyK"
+    },
+    "showFloatButton": true
+  }
+}

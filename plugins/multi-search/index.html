@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多引擎批量搜索</title>
+  <script src="./vue.global.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f0f3f7;
+      --text: #17202a;
+      --muted: #687385;
+      --line: #dfe5ed;
+      --accent: #1570ef;
+      --accent-soft: #e7f0ff;
+      --danger: #d92d20;
+      --ok: #087443;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14171b;
+        --panel: #1d2229;
+        --panel-soft: #252c35;
+        --text: #eef2f6;
+        --muted: #a7b0bf;
+        --line: #374151;
+        --accent: #5aa2ff;
+        --accent-soft: #18304f;
+        --danger: #ff6b61;
+        --ok: #47c78f;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      padding: 0 12px;
+    }
+
+    button:hover { border-color: var(--accent); }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      outline: none;
+      padding: 9px 10px;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+
+    textarea {
+      min-height: 240px;
+      resize: vertical;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      line-height: 1.55;
+    }
+
+    .app {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      backdrop-filter: blur(10px);
+      padding: 8px 0 14px;
+    }
+
+    .search-wrap {
+      display: grid;
+      gap: 7px;
+    }
+
+    .label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .search-input {
+      height: 46px;
+      padding: 0 14px;
+      font-size: 18px;
+      border-radius: 8px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 650;
+    }
+
+    .soft {
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+      color: var(--accent);
+    }
+
+    .danger { color: var(--danger); }
+    .ok { color: var(--ok); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .search-panel {
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .tab {
+      white-space: nowrap;
+      background: transparent;
+      min-height: 32px;
+    }
+
+    .tab.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+      font-weight: 650;
+    }
+
+    .group-tools {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .count {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .engine-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .engine {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 9px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--panel);
+      min-width: 0;
+    }
+
+    .engine.selected {
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+      background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
+    }
+
+    .engine input {
+      width: 16px;
+      height: 16px;
+      padding: 0;
+    }
+
+    .engine-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 620;
+    }
+
+    .mini {
+      min-height: 28px;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    .side {
+      display: grid;
+      gap: 12px;
+    }
+
+    .section {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .engine-list {
+      display: grid;
+      gap: 8px;
+      max-height: 280px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .manage-engine {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 50;
+      max-width: min(680px, calc(100vw - 32px));
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: var(--text);
+      color: var(--bg);
+      box-shadow: var(--shadow);
+    }
+
+    .empty {
+      padding: 34px 12px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    [v-cloak] { display: none; }
+
+    @media (max-width: 860px) {
+      .topbar, .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .actions {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="app" v-cloak>
+    <div class="topbar">
+      <div class="search-wrap">
+        <div class="label-row">
+          <span>搜索关键词</span>
+          <span>{{ selectedIds.length }} 个引擎已勾选</span>
+        </div>
+        <input
+          class="search-input"
+          v-model.trim="keyword"
+          placeholder="输入关键词后批量搜索"
+          @keydown.enter="batchSearch"
+          autofocus
+        >
+      </div>
+      <div class="actions">
+        <button class="primary" @click="batchSearch">批量搜索</button>
+        <button class="soft" @click="selectCurrentGroup">勾选本组</button>
+        <button @click="clearCurrentGroup">清空本组</button>
+        <button @click="clearAll">清空全部</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <main class="panel search-panel">
+        <div class="tabs">
+          <button
+            v-for="group in config.groups"
+            :key="group.id"
+            class="tab"
+            :class="{ active: group.id === currentGroupId }"
+            @click="currentGroupId = group.id"
+          >
+            {{ group.name }}
+          </button>
+        </div>
+
+        <div class="group-tools">
+          <div>
+            <strong>{{ currentGroup?.name || '未命名分类' }}</strong>
+            <span class="count">共 {{ currentGroup?.engines?.length || 0 }} 个引擎</span>
+          </div>
+          <button class="mini primary" @click="searchCurrentGroup">搜索本组</button>
+        </div>
+
+        <div v-if="currentGroup && currentGroup.engines.length" class="engine-grid">
+          <div
+            v-for="engine in currentGroup.engines"
+            :key="engine.id"
+            class="engine"
+            :class="{ selected: selectedSet.has(engine.id) }"
+          >
+            <input
+              type="checkbox"
+              :checked="selectedSet.has(engine.id)"
+              @change="toggleEngine(engine.id)"
+            >
+            <div class="engine-name" :title="engine.url">{{ engine.name }}</div>
+            <button class="mini" @click="singleSearch(engine)">搜索</button>
+          </div>
+        </div>
+
+        <div v-else class="empty">当前分类还没有搜索引擎。</div>
+      </main>
+
+      <aside class="side">
+        <section class="panel section">
+          <div class="section-title">
+            <span>分类</span>
+            <button class="mini" @click="addGroup">新增</button>
+          </div>
+          <select v-model="manageGroupId">
+            <option v-for="group in config.groups" :key="group.id" :value="group.id">
+              {{ group.name }}
+            </option>
+          </select>
+          <div class="row">
+            <button @click="renameGroup">重命名</button>
+            <button class="danger" @click="deleteGroup">删除</button>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-title">
+            <span>{{ editingEngineId ? '编辑引擎' : '添加引擎' }}</span>
+            <button v-if="editingEngineId" class="mini" @click="cancelEditEngine">取消</button>
+          </div>
+          <div class="form-grid">
+            <input v-model.trim="engineForm.name" placeholder="引擎名称">
+            <input v-model.trim="engineForm.url" placeholder="搜索地址，使用 {q} 或 %s 作为关键词">
+            <button class="primary" @click="saveEngine">{{ editingEngineId ? '保存引擎' : '添加到分类' }}</button>
+          </div>
+          <div class="muted">当前管理分类：{{ manageGroup?.name || '未选择' }}</div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-title">
+            <span>引擎列表</span>
+            <span class="muted">{{ manageGroup?.engines?.length || 0 }} 个</span>
+          </div>
+          <div class="engine-list">
+            <div v-for="(engine, index) in manageGroupEngines" :key="engine.id" class="manage-engine">
+              <div>
+                <div class="engine-name" :title="engine.url">{{ engine.name }}</div>
+                <div class="muted">{{ engine.url }}</div>
+              </div>
+              <div class="actions">
+                <button class="mini" :disabled="index === 0" @click="moveEngine(index, -1)">上移</button>
+                <button class="mini" :disabled="index === manageGroupEngines.length - 1" @click="moveEngine(index, 1)">下移</button>
+                <button class="mini" @click="editEngine(engine)">编辑</button>
+                <button class="mini danger" @click="deleteEngine(engine.id)">删除</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-title">
+            <span>配置</span>
+            <span class="muted">v{{ config.version }}</span>
+          </div>
+          <div class="row">
+            <button @click="exportConfig">导出</button>
+            <button @click="$refs.importFile.click()">导入</button>
+          </div>
+          <input ref="importFile" type="file" accept="application/json,.json" hidden @change="importConfig">
+          <button class="danger" @click="resetConfig">恢复默认</button>
+          <textarea v-model="rawJson" spellcheck="false"></textarea>
+          <button @click="applyRawJson">应用 JSON</button>
+        </section>
+      </aside>
+    </div>
+
+    <div v-if="toast" class="toast">{{ toast }}</div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    const STORAGE_KEY = "MY_MULTI_SEARCH_V2_CONFIG";
+    const CONFIG_VERSION = 2;
+
+    function createId(prefix = "id") {
+      return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    function deepClone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function isZTools() {
+      return Boolean(window.ztools);
+    }
+
+    function buildSearchURL(template, keyword) {
+      const encoded = encodeURIComponent(String(keyword || "").trim());
+      return String(template || "")
+        .replaceAll("{q}", encoded)
+        .replaceAll("%s", encoded);
+    }
+
+    function fallbackConfig() {
+      const google = { id: createId("engine"), name: "Google", url: "https://www.google.com/search?q={q}" };
+      const bing = { id: createId("engine"), name: "Bing", url: "https://www.bing.com/search?q={q}" };
+      const baidu = { id: createId("engine"), name: "百度", url: "https://www.baidu.com/s?wd={q}" };
+      return {
+        version: CONFIG_VERSION,
+        groups: [{ id: createId("group"), name: "搜索引擎", engines: [google, bing, baidu] }],
+        selectedIds: [google.id, bing.id, baidu.id],
+        hotkey: { ctrl: true, alt: false, shift: true, key: "K", code: "KeyK" },
+        showFloatButton: true
+      };
+    }
+
+    function sanitizeConfig(raw) {
+      const source = raw && typeof raw === "object" && raw.config ? raw.config : raw;
+      if (!source || typeof source !== "object") return fallbackConfig();
+
+      const result = {
+        version: CONFIG_VERSION,
+        groups: [],
+        selectedIds: [],
+        hotkey: source.hotkey || { ctrl: true, alt: false, shift: true, key: "K", code: "KeyK" },
+        showFloatButton: source.showFloatButton !== false
+      };
+
+      if (Array.isArray(source.groups)) {
+        source.groups.forEach(rawGroup => {
+          if (!rawGroup || typeof rawGroup !== "object") return;
+          const enginesSource = Array.isArray(rawGroup.engines)
+            ? rawGroup.engines
+            : Array.isArray(rawGroup.urls)
+              ? rawGroup.urls
+              : [];
+          const group = {
+            id: typeof rawGroup.id === "string" ? rawGroup.id : createId("group"),
+            name: String(rawGroup.name || "未命名分类").trim() || "未命名分类",
+            engines: []
+          };
+
+          enginesSource.forEach(rawEngine => {
+            if (!rawEngine || typeof rawEngine !== "object") return;
+            const name = String(rawEngine.name || "").trim();
+            const url = String(rawEngine.url || "").trim();
+            if (!name || !url) return;
+            group.engines.push({
+              id: typeof rawEngine.id === "string" ? rawEngine.id : createId("engine"),
+              name,
+              url
+            });
+          });
+
+          result.groups.push(group);
+        });
+      }
+
+      if (!result.groups.length) return fallbackConfig();
+
+      const validIds = new Set();
+      result.groups.forEach(group => group.engines.forEach(engine => validIds.add(engine.id)));
+      result.selectedIds = Array.isArray(source.selectedIds)
+        ? source.selectedIds.filter(id => validIds.has(id))
+        : [];
+
+      return result;
+    }
+
+    async function loadDefaultConfig() {
+      try {
+        if (window.multiSearchApi && window.multiSearchApi.loadDefaultConfig) {
+          return sanitizeConfig(window.multiSearchApi.loadDefaultConfig());
+        }
+      } catch (error) {
+        console.warn("[多引擎搜索] preload 默认配置读取失败", error);
+      }
+
+      try {
+        const response = await fetch("./default-config.json", { cache: "no-store" });
+        if (response.ok) return sanitizeConfig(await response.json());
+      } catch (error) {
+        console.warn("[多引擎搜索] 默认配置读取失败", error);
+      }
+      return fallbackConfig();
+    }
+
+    function loadStoredConfig() {
+      try {
+        if (isZTools() && window.ztools.dbStorage) {
+          return window.ztools.dbStorage.getItem(STORAGE_KEY);
+        }
+        const text = localStorage.getItem(STORAGE_KEY);
+        return text ? JSON.parse(text) : null;
+      } catch (error) {
+        console.warn("[多引擎搜索] 配置读取失败", error);
+        return null;
+      }
+    }
+
+    function saveStoredConfig(config) {
+      const snapshot = deepClone(config);
+      try {
+        if (isZTools() && window.ztools.dbStorage) {
+          window.ztools.dbStorage.setItem(STORAGE_KEY, snapshot);
+          return;
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+      } catch (error) {
+        console.warn("[多引擎搜索] 配置保存失败", error);
+      }
+    }
+
+    createApp({
+      data() {
+        return {
+          keyword: "",
+          config: fallbackConfig(),
+          currentGroupId: "",
+          manageGroupId: "",
+          editingEngineId: null,
+          engineForm: { name: "", url: "" },
+          rawJson: "",
+          toast: "",
+          toastTimer: null
+        };
+      },
+
+      computed: {
+        currentGroup() {
+          return this.config.groups.find(group => group.id === this.currentGroupId) || this.config.groups[0] || null;
+        },
+        manageGroup() {
+          return this.config.groups.find(group => group.id === this.manageGroupId) || this.currentGroup;
+        },
+        manageGroupEngines() {
+          return this.manageGroup ? this.manageGroup.engines : [];
+        },
+        selectedIds() {
+          return this.config.selectedIds;
+        },
+        selectedSet() {
+          return new Set(this.config.selectedIds);
+        }
+      },
+
+      watch: {
+        config: {
+          deep: true,
+          handler(value) {
+            this.rawJson = JSON.stringify(value, null, 2);
+          }
+        },
+        manageGroupId() {
+          this.cancelEditEngine();
+        }
+      },
+
+      async mounted() {
+        const stored = loadStoredConfig();
+        this.config = stored ? sanitizeConfig(stored) : await loadDefaultConfig();
+        this.currentGroupId = this.config.groups[0]?.id || "";
+        this.manageGroupId = this.currentGroupId;
+        this.rawJson = JSON.stringify(this.config, null, 2);
+
+        if (isZTools() && window.ztools.onPluginEnter) {
+          window.ztools.onPluginEnter(({ type, payload }) => {
+            if (typeof payload === "string" && payload.trim()) {
+              this.keyword = payload.trim();
+            } else if (type === "window") {
+              this.keyword = "";
+            }
+            this.$nextTick(() => document.querySelector(".search-input")?.focus());
+          });
+        }
+      },
+
+      methods: {
+        persist(message) {
+          saveStoredConfig(this.config);
+          this.rawJson = JSON.stringify(this.config, null, 2);
+          if (message) this.showToast(message);
+        },
+
+        showToast(message) {
+          this.toast = message;
+          clearTimeout(this.toastTimer);
+          this.toastTimer = setTimeout(() => {
+            this.toast = "";
+          }, 1800);
+          if (isZTools() && window.ztools.showToast) {
+            window.ztools.showToast(message);
+          }
+        },
+
+        ensureKeyword() {
+          if (this.keyword) return true;
+          this.showToast("请输入搜索关键词");
+          document.querySelector(".search-input")?.focus();
+          return false;
+        },
+
+        openUrl(url) {
+          if (isZTools() && window.ztools.shellOpenExternal) {
+            window.ztools.shellOpenExternal(url);
+          } else {
+            window.open(url, "_blank", "noopener,noreferrer");
+          }
+        },
+
+        singleSearch(engine) {
+          if (!this.ensureKeyword()) return;
+          this.openUrl(buildSearchURL(engine.url, this.keyword));
+        },
+
+        batchSearch() {
+          if (!this.ensureKeyword()) return;
+          const selected = new Set(this.config.selectedIds);
+          const engines = [];
+          this.config.groups.forEach(group => {
+            group.engines.forEach(engine => {
+              if (selected.has(engine.id)) engines.push(engine);
+            });
+          });
+          if (!engines.length) {
+            this.showToast("请至少选择一个搜索引擎");
+            return;
+          }
+          engines.forEach((engine, index) => {
+            setTimeout(() => this.openUrl(buildSearchURL(engine.url, this.keyword)), index * 120);
+          });
+          this.showToast(`已打开 ${engines.length} 个搜索结果`);
+        },
+
+        searchCurrentGroup() {
+          if (!this.currentGroup) return;
+          if (!this.ensureKeyword()) return;
+          this.currentGroup.engines.forEach((engine, index) => {
+            setTimeout(() => this.openUrl(buildSearchURL(engine.url, this.keyword)), index * 120);
+          });
+          this.showToast(`已打开 ${this.currentGroup.engines.length} 个搜索结果`);
+        },
+
+        toggleEngine(id) {
+          const selected = new Set(this.config.selectedIds);
+          selected.has(id) ? selected.delete(id) : selected.add(id);
+          this.config.selectedIds = [...selected];
+          this.persist();
+        },
+
+        selectCurrentGroup() {
+          if (!this.currentGroup) return;
+          const selected = new Set(this.config.selectedIds);
+          this.currentGroup.engines.forEach(engine => selected.add(engine.id));
+          this.config.selectedIds = [...selected];
+          this.persist("已勾选当前分类");
+        },
+
+        clearCurrentGroup() {
+          if (!this.currentGroup) return;
+          const groupIds = new Set(this.currentGroup.engines.map(engine => engine.id));
+          this.config.selectedIds = this.config.selectedIds.filter(id => !groupIds.has(id));
+          this.persist("已清空当前分类");
+        },
+
+        clearAll() {
+          this.config.selectedIds = [];
+          this.persist("已清空全部勾选");
+        },
+
+        addGroup() {
+          const name = prompt("请输入新分类名称：");
+          if (!name || !name.trim()) return;
+          const group = { id: createId("group"), name: name.trim(), engines: [] };
+          this.config.groups.push(group);
+          this.currentGroupId = group.id;
+          this.manageGroupId = group.id;
+          this.persist("分类已新增");
+        },
+
+        renameGroup() {
+          if (!this.manageGroup) return;
+          const name = prompt("新的分类名称：", this.manageGroup.name);
+          if (!name || !name.trim()) return;
+          this.manageGroup.name = name.trim();
+          this.persist("分类已重命名");
+        },
+
+        deleteGroup() {
+          if (!this.manageGroup || this.config.groups.length <= 1) {
+            this.showToast("至少需要保留一个分类");
+            return;
+          }
+          if (!confirm(`确定删除分类「${this.manageGroup.name}」吗？`)) return;
+          const removedIds = new Set(this.manageGroup.engines.map(engine => engine.id));
+          this.config.groups = this.config.groups.filter(group => group.id !== this.manageGroupId);
+          this.config.selectedIds = this.config.selectedIds.filter(id => !removedIds.has(id));
+          this.currentGroupId = this.config.groups[0]?.id || "";
+          this.manageGroupId = this.currentGroupId;
+          this.persist("分类已删除");
+        },
+
+        saveEngine() {
+          if (!this.manageGroup) return;
+          const name = this.engineForm.name.trim();
+          const url = this.engineForm.url.trim();
+          if (!name || !url) {
+            this.showToast("请填写引擎名称和搜索地址");
+            return;
+          }
+          if (!url.includes("{q}") && !url.includes("%s")) {
+            this.showToast("搜索地址需要包含 {q} 或 %s");
+            return;
+          }
+
+          if (this.editingEngineId) {
+            const engine = this.manageGroup.engines.find(item => item.id === this.editingEngineId);
+            if (engine) {
+              engine.name = name;
+              engine.url = url;
+            }
+            this.cancelEditEngine();
+            this.persist("引擎已保存");
+            return;
+          }
+
+          this.manageGroup.engines.push({ id: createId("engine"), name, url });
+          this.engineForm = { name: "", url: "" };
+          this.persist("引擎已添加");
+        },
+
+        editEngine(engine) {
+          this.editingEngineId = engine.id;
+          this.engineForm = { name: engine.name, url: engine.url };
+        },
+
+        cancelEditEngine() {
+          this.editingEngineId = null;
+          this.engineForm = { name: "", url: "" };
+        },
+
+        deleteEngine(id) {
+          if (!this.manageGroup) return;
+          const engine = this.manageGroup.engines.find(item => item.id === id);
+          if (!engine || !confirm(`确定删除「${engine.name}」吗？`)) return;
+          this.manageGroup.engines = this.manageGroup.engines.filter(item => item.id !== id);
+          this.config.selectedIds = this.config.selectedIds.filter(itemId => itemId !== id);
+          this.cancelEditEngine();
+          this.persist("引擎已删除");
+        },
+
+        moveEngine(index, direction) {
+          if (!this.manageGroup) return;
+          const target = index + direction;
+          if (target < 0 || target >= this.manageGroup.engines.length) return;
+          const list = this.manageGroup.engines;
+          const [item] = list.splice(index, 1);
+          list.splice(target, 0, item);
+          this.persist("排序已更新");
+        },
+
+        exportConfig() {
+          const payload = {
+            app: "多引擎批量搜索",
+            version: CONFIG_VERSION,
+            exportedAt: new Date().toISOString(),
+            config: deepClone(this.config)
+          };
+          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `multi-search-v2-${new Date().toISOString().slice(0, 10)}.json`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        },
+
+        importConfig(event) {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const next = sanitizeConfig(JSON.parse(reader.result));
+              this.config = next;
+              this.currentGroupId = next.groups[0]?.id || "";
+              this.manageGroupId = this.currentGroupId;
+              this.cancelEditEngine();
+              this.persist("配置已导入");
+            } catch (error) {
+              this.showToast(`导入失败：${error.message}`);
+            }
+          };
+          reader.readAsText(file, "utf-8");
+        },
+
+        async resetConfig() {
+          if (!confirm("确定恢复默认配置吗？当前分类、引擎和勾选状态会被重置。")) return;
+          this.config = await loadDefaultConfig();
+          this.currentGroupId = this.config.groups[0]?.id || "";
+          this.manageGroupId = this.currentGroupId;
+          this.cancelEditEngine();
+          this.persist("已恢复默认配置");
+        },
+
+        applyRawJson() {
+          try {
+            const next = sanitizeConfig(JSON.parse(this.rawJson));
+            this.config = next;
+            this.currentGroupId = next.groups[0]?.id || "";
+            this.manageGroupId = this.currentGroupId;
+            this.cancelEditEngine();
+            this.persist("JSON 配置已应用");
+          } catch (error) {
+            this.showToast(`JSON 格式错误：${error.message}`);
+          }
+        }
+      }
+    }).mount("#app");
+  </script>
+</body>
+</html>

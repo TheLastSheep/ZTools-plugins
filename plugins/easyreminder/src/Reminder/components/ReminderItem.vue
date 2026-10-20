@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Reminder, DaySchedule } from '../../types/reminder'
-import { WEEKDAY_LABELS, REMINDER_TYPE_LABELS } from '../../types/reminder'
+import { WEEKDAY_LABELS, REMINDER_TYPE_LABELS, DAY_FILTER_LABELS, ALIGN_MODE_LABELS } from '../../types/reminder'
 
 const props = defineProps<{
   reminder: Reminder
@@ -31,6 +31,8 @@ interface TimeGroup {
 function groupByTime(schedules: DaySchedule[]): TimeGroup[] {
   if (schedules.length === 0) return []
   const sorted = [...schedules].sort((a, b) => a.weekday - b.weekday)
+  // 全部星期集合：某组覆盖了全部已选星期时，不再重复显示星期前缀（如全选时就是"每天"）
+  const allDays = [...new Set(sorted.map(s => s.weekday))].sort((a, b) => a - b)
   const map = new Map<string, number[]>()
   for (const s of sorted) {
     const key = `${s.startTime}-${s.endTime}`
@@ -39,8 +41,10 @@ function groupByTime(schedules: DaySchedule[]): TimeGroup[] {
   }
   const groups: TimeGroup[] = []
   for (const [time, weekdays] of map) {
+    const ws = weekdays.sort((a, b) => a - b)
+    const coversAll = ws.length === allDays.length && ws.every((w, i) => w === allDays[i])
     groups.push({
-      days: weekdays.sort((a, b) => a - b).map(w => WEEKDAY_LABELS[w]).join('、'),
+      days: coversAll ? '' : ws.map(w => WEEKDAY_LABELS[w]).join('、'),
       time
     })
   }
@@ -65,7 +69,10 @@ function isOncePast(timestamp: number): boolean {
   <div :class="['reminder-item', { disabled: !reminder.enabled }]">
     <div class="item-main">
       <div class="item-header">
-        <span class="item-title">{{ reminder.title }}</span>
+        <div class="item-title-row">
+          <span class="item-title">{{ reminder.title }}</span>
+          <span class="item-desc" v-if="reminder.content">{{ reminder.content }}</span>
+        </div>
         <div class="item-toggle">
           <label class="switch">
             <input
@@ -77,9 +84,16 @@ function isOncePast(timestamp: number): boolean {
           </label>
         </div>
       </div>
-      <div class="item-desc" v-if="reminder.content">{{ reminder.content }}</div>
       <div class="item-meta">
         <span class="tag tag-type">{{ REMINDER_TYPE_LABELS[reminder.type] }}</span>
+
+        <!-- 触发日过滤标签 -->
+        <span
+          v-if="reminder.type !== 'once' && reminder.dayFilter && reminder.dayFilter !== 'all'"
+          class="tag tag-dayfilter"
+        >
+          {{ DAY_FILTER_LABELS[reminder.dayFilter] }}
+        </span>
 
         <!-- once 类型 -->
         <template v-if="reminder.type === 'once'">
@@ -103,10 +117,11 @@ function isOncePast(timestamp: number): boolean {
           </template>
           <template v-else>
             <span v-for="(g, i) in groupByTime(reminder.schedules)" :key="i" class="tag tag-group">
-              {{ g.days }} {{ g.time }}
+              {{ g.days ? g.days + ' ' : '' }}{{ g.time }}
             </span>
           </template>
           <span class="tag">每{{ formatInterval(reminder.interval) }}</span>
+          <span v-if="reminder.align === 'create'" class="tag tag-align-create">{{ ALIGN_MODE_LABELS.create }}</span>
         </template>
       </div>
     </div>
@@ -158,7 +173,16 @@ function isOncePast(timestamp: number): boolean {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 4px;
+}
+
+.item-title-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .item-title {
@@ -168,15 +192,18 @@ function isOncePast(timestamp: number): boolean {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 60%;
 }
 
 .item-desc {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  margin-bottom: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .item-meta {
@@ -202,9 +229,19 @@ function isOncePast(timestamp: number): boolean {
   color: var(--el-color-warning);
 }
 
+.tag-dayfilter {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+
 .tag-group {
   background: var(--el-color-primary-light-9);
   color: var(--el-color-primary);
+}
+
+.tag-align-create {
+  background: var(--el-color-info-light-9);
+  color: var(--el-color-info);
 }
 
 .tag-past {

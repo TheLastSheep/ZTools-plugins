@@ -1,7 +1,7 @@
 {
   "name": "myPlugins",
-  "version": "2.5.1",
-  "description": "开发百宝箱，提供随机生成、编码转换、文本压缩、开发辅助等常用工具集",
+  "version": "3.0.1",
+  "description": "开发百宝箱——只做实际开发中会用到的工具，每个工具都对应真实开发场景里的具体问题，做到真正提效",
   "type": "module",
   "scripts": {
     "dev": "vite",

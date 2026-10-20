@@ -1,5 +1,4 @@
 ﻿import { computed, ref } from 'vue'
-import { useLog } from './useLog'
 import type { Reminder, ReminderFormData } from '../types/reminder'
 import { migrateReminder } from '../types/reminder'
 
@@ -16,23 +15,20 @@ function refreshFromServices(): void {
 }
 
 export function useReminders() {
-  const { addLog } = useLog()
-
   function loadReminders(): void {
     refreshFromServices()
   }
 
+  // 日志统一由 preload 调度器记录，渲染层只负责数据读写
   function addReminder(formData: ReminderFormData): Reminder {
     const r = window.services.addReminder(formData) as Reminder
     refreshFromServices()
-    addLog(`[新建] ${r.title} 类型=${r.type}`, { id: r.id, type: r.type })
     return r
   }
 
   function updateReminder(id: string, formData: ReminderFormData): boolean {
     const ok = window.services.updateReminder(id, formData)
     refreshFromServices()
-    addLog(`[更新] ${formData.title}`, { id, type: formData.type })
     return ok
   }
 

@@ -20,13 +20,6 @@ function refresh(): void {
 export function useLog() {
   refresh()
 
-  function addLog(message: string, detail: Record<string, any> = {}) {
-    try {
-      window.services.addLog(message, detail)
-    } catch {}
-    refresh()
-  }
-
   function clearLogs() {
     try {
       window.services.clearLogs()
@@ -36,7 +29,6 @@ export function useLog() {
 
   return {
     logs,
-    addLog,
     clearLogs,
     refresh
   }

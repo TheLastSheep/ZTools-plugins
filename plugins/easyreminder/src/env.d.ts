@@ -44,10 +44,12 @@ interface Services {
   toggleReminder: (id: string) => boolean
 
   refreshScheduler: () => void
-  stopScheduler: () => void
+  getSchedulerState: () => { ready: boolean; nextTriggerText: string }
+
+  getHolidayStatus: () => { years: number[]; updatedAt: number; refreshing: boolean }
+  refreshHolidayData: () => Promise<boolean>
 
   getLogs: () => LogEntryLike[]
-  addLog: (message: string, detail: Record<string, any>) => void
   clearLogs: () => void
 }
 

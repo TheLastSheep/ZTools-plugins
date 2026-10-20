@@ -1,24 +1,32 @@
 {
-  "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
+  "pluginName": "斗图表情包",
   "name": "doutu",
   "title": "斗图表情包",
   "description": "在线搜索表情包图片，助你高效斗图",
   "author": "被时间思牵",
-  "version": "1.0.0",
+  "version": "4.0.0",
   "main": "index.html",
   "preload": "preload/services.js",
   "logo": "logo.png",
   "development": {
-    "main": "http://localhost:5173"
+    "main": "http://localhost:5173",
+    "preload": "preload/services.js"
   },
   "features": [
     {
       "code": "doutu",
-      "explain": "表情包搜索插件",
+      "explain": "表情包搜索:回车搜索,左击复制图片,中击查看大图,右击加入收藏",
       "icon": "logo.png",
       "cmds": [
         "doutu",
-        "emo"
+        "斗图",
+        "表情",
+        {
+          "type": "over",
+          "label": "斗图啦",
+          "minLength": 1,
+          "maxLength": 20
+        }
       ]
     }
   ],

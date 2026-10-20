@@ -1,0 +1,100 @@
+/* Region variables also reach menus teleported to body and the fullscreen editor. */
+:root[data-custom-theme="true"] {
+  --surface-background: var(--popup-background);
+  --surface-text: var(--popup-text);
+  color: var(--popup-text);
+  background: var(--popup-background);
+}
+
+:root[data-custom-theme="true"] :is(.topbar, .workspace-view > aside) {
+  --surface-background: var(--navigation-background);
+  --surface-text: var(--navigation-text);
+  color: var(--navigation-text);
+  background: var(--navigation-background);
+  color-scheme: var(--navigation-color-scheme);
+}
+:root[data-custom-theme="true"] :is(.editor-panel, .empty-editor, .fullscreen-header) {
+  --surface-background: var(--editor-background);
+  --surface-text: var(--editor-text);
+  color: var(--editor-text);
+  background: var(--editor-background);
+}
+:root[data-custom-theme="true"] :is(.panel, .settings-dialog, .confirm-dialog, .save-conflict-dialog, .attachment-scan-dialog, .note-link-dialog, .table-dialog, .image-size-dialog, .trash-panel, .outline-panel, .search-results, .create-menu-popover, .entry-menu-popover, .editor-more-popover, .image-context-menu, .note-find-bar, .code-block-tools, .code-language-options, .image-preview) {
+  --surface-background: var(--popup-background);
+  --surface-text: var(--popup-text);
+  color: var(--popup-text);
+  background: var(--popup-background);
+  color-scheme: var(--popup-color-scheme);
+}
+:root[data-custom-theme="true"] :is(.image-preview-toolbar, .editor-loading, .note-message) {
+  color: var(--surface-text);
+  background: var(--surface-background);
+}
+:root[data-custom-theme="true"] .editor-toolbar { background: var(--editor-toolbar-background); }
+:root[data-custom-theme="true"] :is(.topbar, .workspace-view > aside, .editor-toolbar, .panel, .settings-dialog, .settings-dialog > header, .settings-dialog > footer, .settings-group, .settings-action-row, .workspace-settings, .workspace-settings-row, .attachment-scan-list, .attachment-scan-list > div, .pinned-notes, .confirm-dialog, .save-conflict-dialog, .attachment-scan-dialog, .note-link-dialog, .table-dialog, .image-size-dialog, .trash-panel, .trash-header, .trash-item, .trash-footer, .outline-panel, .outline-header, .search-results, .create-menu-popover, .entry-menu-popover, .editor-more-popover, .image-context-menu, .note-find-bar, .code-block-tools, .code-language-options) { border-color: var(--theme-border-color); }
+:root[data-custom-theme="true"] .fullscreen-header { box-shadow: 0 1px 0 var(--theme-border-color); }
+
+:root[data-custom-theme="true"] :is(input, select, textarea, select option) {
+  color: var(--surface-text);
+  border-color: var(--theme-border-color);
+  background-color: var(--surface-background);
+}
+:root[data-custom-theme="true"] input[type="range"] { accent-color: var(--accent-color); }
+:root[data-custom-theme="true"] button { color: var(--accent-text); background: var(--accent-color); }
+:root[data-custom-theme="true"] :is(.button-secondary, .note-link-trigger, .create-menu-trigger, .image-size-presets button, .code-block-tools button, .image-preview-toolbar button, .fullscreen-header .fullscreen-outline-button) {
+  color: var(--surface-text);
+  background: color-mix(in srgb, var(--surface-text) 12%, var(--surface-background));
+}
+:root[data-custom-theme="true"] :is(.toolbar-icon-button, .back-button, .tree-note, .pinned-note, .pinned-note-remove, .outline-trigger, .editor-more-trigger, .entry-menu-trigger, .create-menu-popover button, .entry-menu-popover button, .editor-more-popover button, .image-context-menu button, .settings-dialog > header button, .save-conflict-dialog > header > button, .attachment-scan-dialog > header > button, .note-link-dialog > header button, .trash-close, .outline-header button, .search-results button, .note-link-list button, .outline-list button, .note-find-bar button, .settings-switch, .code-language-options button, .theme-details-toggle) {
+  color: var(--surface-text);
+  background: transparent;
+}
+:root[data-custom-theme="true"] :is(.toolbar-icon-button, .button-secondary, .note-link-trigger, .create-menu-trigger, .pinned-note-remove, .outline-trigger, .editor-more-trigger, .entry-menu-trigger, .create-menu-popover button, .entry-menu-popover button, .editor-more-popover button, .image-context-menu button, .settings-dialog > header button, .save-conflict-dialog > header > button, .attachment-scan-dialog > header > button, .note-link-dialog > header button, .trash-close, .outline-header button, .search-results button, .note-link-list button, .outline-list button, .note-find-bar button, .settings-switch, .code-block-tools button, .code-language-options button, .image-size-presets button, .image-preview-toolbar button, .fullscreen-header .fullscreen-outline-button, .theme-details-toggle):hover:not(:disabled),
+:root[data-custom-theme="true"] :is(.tree-row:hover, .pinned-note-row:hover) {
+  color: var(--surface-text);
+  background: color-mix(in srgb, var(--surface-text) 12%, var(--surface-background));
+}
+:root[data-custom-theme="true"] :is(.tree-row--selected, .tree-row--active, .pinned-note-row--active, .search-results .search-result--selected, .outline-trigger--active, .editor-more-trigger[aria-expanded="true"]) { background: color-mix(in srgb, var(--accent-color) 20%, var(--surface-background)); }
+:root[data-custom-theme="true"] :is(.create-target, .editor-menu-divider) { background: color-mix(in srgb, var(--surface-text) 7%, var(--surface-background)); }
+:root[data-custom-theme="true"] :is(.muted, .empty-editor, .search-results span, .search-results small, .search-state, .create-target, .pinned-notes h2, .pinned-note-remove, .note-icon, .note-find-count, .settings-group-title small, .settings-action-row small, .workspace-settings-header small, .workspace-settings-row small, .trash-retention-setting em, .confirm-dialog p, .workspace-migration-paths dt, .save-conflict-dialog p, .attachment-scan-dialog header p, .attachment-scan-list small, .attachment-scan-list > p, .note-link-list span, .note-link-list p, .table-size-fields span, .table-dialog > p, .trash-header span, .trash-item-info span, .trash-item-info small, .trash-empty, .trash-empty span, .outline-empty, .code-language-options small, .code-language-options p, .image-size-dialog p, .image-size-dialog small, .image-size-presets > span) { color: color-mix(in srgb, var(--surface-text) 78%, var(--surface-background)); }
+:root[data-custom-theme="true"] :is(.app-title, .search-results strong) { color: var(--surface-text); }
+:root[data-custom-theme="true"] :is(.eyebrow, .menu-check, .settings-switch--on) { color: var(--accent-color); }
+:root[data-custom-theme="true"] .settings-switch--on i { background: var(--accent-color); }
+:root[data-custom-theme="true"] .pinned-note svg { stroke: var(--accent-color); fill: color-mix(in srgb, var(--accent-color) 16%, transparent); }
+:root[data-custom-theme="true"] .folder-chevron { stroke: var(--surface-text); }
+:root[data-custom-theme="true"] :is(.danger-button, .fullscreen-header > div > button:not(.fullscreen-outline-button)) { color: #fff; background: #dc2626; }
+:root[data-custom-theme="true"] .trash-delete-button { color: #b91c1c; background: #fee2e2; }
+:root[data-custom-theme="true"] :is(.entry-menu-popover .danger-action, .image-context-menu .danger-menu-item) { color: #ef4444; }
+:root[data-custom-theme="true"] button:disabled { opacity: .55; }
+
+:root[data-custom-theme="true"] .markdown-editor.vditor {
+  --surface-background: var(--editor-background);
+  --surface-text: var(--editor-text);
+  --border-color: var(--theme-border-color);
+  --second-color: color-mix(in srgb, var(--editor-text) 42%, transparent);
+  --panel-background-color: var(--popup-background);
+  --panel-shadow: 0 5px 10px rgb(0 0 0 / 20%);
+  --toolbar-background-color: var(--editor-toolbar-background);
+  --toolbar-icon-color: var(--editor-text);
+  --toolbar-icon-hover-color: var(--accent-color);
+  --textarea-background-color: var(--editor-background);
+  --textarea-text-color: var(--editor-text);
+  --heading-border-color: var(--theme-border-color);
+  --blockquote-color: color-mix(in srgb, var(--editor-text) 78%, var(--editor-background));
+}
+:root[data-custom-theme="true"] .markdown-editor .vditor-reset { color: var(--editor-text); }
+:root[data-custom-theme="true"] .markdown-editor :is(.vditor-ir, .vditor-sv) { background: var(--editor-background); }
+:root[data-custom-theme="true"] .markdown-editor .vditor-reset a { color: var(--accent-color); }
+:root[data-custom-theme="true"] .markdown-editor .vditor-reset blockquote { border-color: var(--theme-border-color); color: var(--blockquote-color); }
+:root[data-custom-theme="true"] .markdown-editor :is(.vditor-hint, .vditor-panel) {
+  --surface-background: var(--popup-background);
+  --surface-text: var(--popup-text);
+  --toolbar-icon-color: var(--popup-text);
+  --toolbar-background-color: color-mix(in srgb, var(--popup-text) 12%, var(--popup-background));
+  --textarea-text-color: var(--popup-text);
+  color: var(--popup-text);
+  background: var(--popup-background);
+  color-scheme: var(--popup-color-scheme);
+}
+:root[data-custom-theme="true"] .markdown-editor button { color: var(--toolbar-icon-color); background: transparent; }
+::highlight(note-find-current) { color: var(--find-highlight-text, #172033); background: var(--find-highlight-color, #facc15); }
